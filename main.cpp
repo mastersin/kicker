@@ -669,22 +669,46 @@ public:
 	}
 };
 
+// Protocol:
+// Delimeter - ':'
+// Separator - '.'
+// Data      - [0-9A-Z]
+// Packet:
+// - Delimeter
+// - Length1 (high part of byte)
+// - Length2 (low part of byte) N = to_hex(Length1) << 4 + to_hex(Length2)
+// - Separator
+// - Data1
+// - Data2
+// - Data3
+// - ...
+// - DataN
+// - Separator
+// - Checksum1 (high part of byte)
+// - Checksum2 (low part of byte) CheckSum = to_hex(Checksum1) << 4 + to_hex(Checksum2)
+
 class Terminal;
 class TerminalReceiver
 {
 	enum State
 	{
 		Wait,
+		Length1,
+		Length2,
+		DataSep,
 		Cmd,
 		Data1,
 		Data2,
 		Data3,
 		Data4,
+		ChecksumSep,
 		Checksum1,
 		Checksum2,
 		Ready,
 		Error
 	};
+	
+	static const uint8_t packet_size = 5;
 
 	enum Command
 	{
@@ -703,7 +727,12 @@ public:
 	void reset () 
 	{
 		state = Wait;
+	}
+
+	void reinit () 
+	{
 		data.data16 = 0;
+		test_checksum = 0;
 	}
 
 	bool ready (bool reinit = true)
@@ -770,62 +799,90 @@ public:
 		if (byte == 0)
 			return Wait;
 		
+		State next = Error;
+		
 		switch (state) {
 		case Error:
 			reset();
 		case Ready:
 		case Wait:
-			if (byte == ':')
-				return Cmd;
+			if (byte == ':') {
+				reinit();
+				next = Length1;
+			}
+			break;
+		case Length1:
+			if (is_data(byte)) {
+				length = to_hex(byte)<<4;
+				next = Length2;
+			}
+			break;
+		case Length2:
+			if (is_data(byte)) {
+				length |= to_hex(byte);
+				if (length == packet_size)
+					next = DataSep;
+			}
+			break;
+		case DataSep:
+			if (is_separator(byte))
+				next = Cmd;
 			break;
 		case Cmd:
 			if (is_command(byte)) {
 				command = byte;
-				return Data1;
+				next = Data1;
 			}
 			break;
 		case Data1:
 			if (is_data(byte)) {
-				data.data8[0] = to_hex(byte);
-				return Data2;
+				data.data8[1] = to_hex(byte)<<4;
+				next = Data2;
 			}
 			break;
 		case Data2:
 			if (is_data(byte)) {
-				data.data8[0] |= to_hex(byte)<<4;
-				return Data3;
+				data.data8[1] |= to_hex(byte);
+				next = Data3;
 			}
 			break;
 		case Data3:
 			if (is_data(byte)) {
-				data.data8[1] = to_hex(byte);
-				return Data4;
+				data.data8[0] = to_hex(byte)<<4;
+				next = Data4;
 			}
 			break;
 		case Data4:
 			if (is_data(byte)) {
-				data.data8[1] |= to_hex(byte)<<4;
-				return Checksum1;
+				data.data8[0] |= to_hex(byte);
+				next = ChecksumSep;
 			}
+			break;
+		case ChecksumSep:
+			if (is_separator(byte))
+				return Checksum1;
 			break;
 		case Checksum1:
 			if (is_data(byte)) {
-				checksum = to_hex(byte);
+				checksum = to_hex(byte)<<4;
 				return Checksum2;
 			}
 			break;
 		case Checksum2:
 			if (is_data(byte)) {
-				checksum |= to_hex(byte)<<4;
-				if (test_checksum())
+				checksum |= to_hex(byte);
+				if (test_checksum == checksum)
 					return Ready;
 			}
 			break;
 		default:
-			break;
+			return Error;
 		}
 		
-		return Error;
+		if (state < ChecksumSep)
+			test_checksum += byte;
+		
+		return next;
 	}
 	
 	void poll()
@@ -853,6 +910,10 @@ private:
 	{
 		return is_alpha(byte, 'F') || is_digit(byte);
 	}
+	bool is_separator (uint8_t byte)
+	{
+		return byte == ',';
+	}
 	uint8_t to_hex (uint8_t byte)
 	{
 		if (byte > '9')
@@ -861,25 +922,15 @@ private:
 		return byte - '0';
 	}
 
-	bool test_checksum ()
-	{
-		register uint8_t byte = command;
-		byte += getData(0);
-		byte += getData(1);
-
-		if (byte == checksum)
-			return true;
-
-		return false;
-	}
-
 	State state;
 	union Data {
 		uint8_t data8[2];
 		uint16_t data16;
 	};
+	uint8_t test_checksum;
 	uint8_t checksum;
 	uint8_t command;
+	uint8_t length;
 	Data data;
 	
 	friend class Terminal;
@@ -891,17 +942,18 @@ private:
 class Terminal
 {
 	static const uint8_t indicator_size = 3*5;
+	static const uint8_t length_size    = 3;
 	static const uint8_t mode_size      = 1;
 	static const uint8_t time_size      = 3;
 	static const uint8_t status_size    = 1;
-	static const uint8_t checksum_size  = 2;
-	static const uint8_t buffer_size    = indicator_size*2+mode_size+time_size+status_size+checksum_size;
-	static const uint8_t red_index      = 0;
-	static const uint8_t green_index    = indicator_size;
-	static const uint8_t mode_index     = indicator_size*2;
-	static const uint8_t time_index     = indicator_size*2+mode_size;
-	static const uint8_t status_index   = indicator_size*2+mode_size+time_size;
-	static const uint8_t checksum_index = indicator_size*2+mode_size+time_size+status_index;
+	static const uint8_t checksum_size  = 3;
+	static const uint8_t buffer_size    = length_size+indicator_size*2+mode_size+time_size+status_size+checksum_size;
+	static const uint8_t red_index      = length_size;
+	static const uint8_t green_index    = length_size+indicator_size;
+	static const uint8_t mode_index     = length_size+indicator_size*2;
+	static const uint8_t time_index     = length_size+indicator_size*2+mode_size;
+	static const uint8_t status_index   = length_size+indicator_size*2+mode_size+time_size;
+	static const uint8_t checksum_index = length_size+indicator_size*2+mode_size+time_size+status_size;
 
 	enum State
 	{
@@ -925,19 +977,25 @@ public:
 		if (state == Send && UART::send_ready())
 			return false;
 		
+		register uint8_t tmp = buffer_size-length_size-checksum_size;
+		buffer[0] = normalize_hex(tmp>>4);
+		buffer[1] = normalize_hex(tmp);
+		buffer[2] = ',';
+		
 		for (register uint8_t i = 0; i < indicator_size; i++) {
-			buffer[i] = normalize_digit(redLine[i]);
-			buffer[i+green_index] = normalize_digit(greenLine[i]);
+			buffer[i+red_index] = normalize_digit(redLine[indicator_size-1-i]);
+			buffer[i+green_index] = normalize_digit(greenLine[indicator_size-1-i]);
 		}
 		buffer[mode_index] = normalize_alpha(mode);
 		fill3digits(buffer+time_index, time);
 		buffer[status_index] = check_alpha(status);
 
-		register uint8_t checksum = 0;
-		for (register uint8_t i = 0; i < buffer_size-checksum_size; i++)
-			checksum += buffer[i];
-		buffer[checksum_index] = normalize_hex(checksum);
-		buffer[checksum_index+1] = normalize_hex(checksum>>4);
+		tmp = 0;
+		for (register uint8_t i = 0; i < (buffer_size-checksum_size); i++)
+			tmp += buffer[i];
+		buffer[checksum_index] = ',';
+		buffer[checksum_index+1] = normalize_hex(tmp>>4);
+		buffer[checksum_index+2] = normalize_hex(tmp);
 
 		state = Send;
 		index = 0;
@@ -993,7 +1051,7 @@ private:
 			UART::send(buffer[index++]);
 		} else {
 			state = Done;
-			UART::send(buffer[0]);
+			UART::send(0);
 		}
 	}
 	uint8_t normalize_digit (uint8_t byte) {
@@ -1007,7 +1065,8 @@ private:
 		return byte - 0xA + 'A';
 	}
 	uint8_t normalize_hex (uint8_t byte) {
-		byte &= 0xf;
+		static const uint8_t mask = 0x0f;
+		byte &= mask;
 		if (byte > 9)
 			return byte - 0xA + 'A';
 		return byte + '0';
@@ -1020,13 +1079,13 @@ private:
 	void fill3digits (uint8_t *buff, uint16_t data) {
 		register uint8_t a, b;
 		a = data%10;
-		buff[0] = a + '0';
+		buff[2] = a + '0';
 		b = data/10;
 		a = b%10;
 		buff[1] = a + '0';
 		b = b/10;
 		a = b%10;
-		buff[2] = a + '0';
+		buff[0] = a + '0';
 	}
 
 	uint8_t buffer[buffer_size];
