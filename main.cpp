@@ -1062,7 +1062,7 @@ private:
 	uint8_t normalize_alpha (uint8_t byte) {
 		if (byte > 'Z'-'A')
 			return '.';
-		return byte - 0xA + 'A';
+		return byte + 'A';
 	}
 	uint8_t normalize_hex (uint8_t byte) {
 		static const uint8_t mask = 0x0f;
