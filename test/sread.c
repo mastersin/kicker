@@ -76,7 +76,7 @@
 		buff[6] = '0';
 		buff[7] = '0';
 		buff[8] = '0';
-		for (i = 0; i < 9; i++)
+		for (i = 1; i < 9; i++)
 			cs += buff[i];
 		buff[9] = ',';
 		buff[10] = to_char(cs>>4);

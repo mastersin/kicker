@@ -808,7 +808,7 @@ public:
 		case Wait:
 			if (byte == ':') {
 				reinit();
-				next = Length1;
+				return Length1;
 			}
 			break;
 		case Length1:
@@ -945,15 +945,17 @@ class Terminal
 	static const uint8_t length_size    = 3;
 	static const uint8_t mode_size      = 1;
 	static const uint8_t time_size      = 3;
+	static const uint8_t full_size      = 3;
 	static const uint8_t status_size    = 1;
 	static const uint8_t checksum_size  = 3;
-	static const uint8_t buffer_size    = length_size+indicator_size*2+mode_size+time_size+status_size+checksum_size;
+	static const uint8_t buffer_size    = length_size+indicator_size*2+mode_size+full_size+time_size+status_size+checksum_size;
 	static const uint8_t red_index      = length_size;
 	static const uint8_t green_index    = length_size+indicator_size;
 	static const uint8_t mode_index     = length_size+indicator_size*2;
 	static const uint8_t time_index     = length_size+indicator_size*2+mode_size;
-	static const uint8_t status_index   = length_size+indicator_size*2+mode_size+time_size;
-	static const uint8_t checksum_index = length_size+indicator_size*2+mode_size+time_size+status_size;
+	static const uint8_t full_index     = length_size+indicator_size*2+mode_size+time_size;
+	static const uint8_t status_index   = length_size+indicator_size*2+mode_size+time_size+full_size;
+	static const uint8_t checksum_index = length_size+indicator_size*2+mode_size+time_size+full_size+status_size;
 
 	enum State
 	{
@@ -972,7 +974,7 @@ public:
 	
 	bool update (const uint8_t *redLine,
 		     const uint8_t *greenLine,
-		     uint8_t mode, uint16_t time, uint8_t status)
+		     uint8_t mode, uint16_t full, uint16_t time, uint8_t status)
 	{
 		if (state == Send && UART::send_ready())
 			return false;
@@ -988,6 +990,7 @@ public:
 		}
 		buffer[mode_index] = normalize_alpha(mode);
 		fill3digits(buffer+time_index, time);
+		fill3digits(buffer+full_index, full);
 		buffer[status_index] = check_alpha(status);
 
 		tmp = 0;
@@ -1076,17 +1079,7 @@ private:
 			return '.';
 		return byte;
 	}
-	void fill3digits (uint8_t *buff, uint16_t data) {
-		register uint8_t a, b;
-		a = data%10;
-		buff[2] = a + '0';
-		b = data/10;
-		a = b%10;
-		buff[1] = a + '0';
-		b = b/10;
-		a = b%10;
-		buff[0] = a + '0';
-	}
+	void fill3digits (uint8_t *buff, uint16_t data);
 
 	uint8_t buffer[buffer_size];
 	uint8_t index;
@@ -1179,7 +1172,7 @@ public:
 	void poll_terminal()
 	{
 		if (need_terminal_update) {
-			if (terminal.update(redIndicator.data(), greenIndicator.data(), mode, timer, terminal_status))
+			if (terminal.update(redIndicator.data(), greenIndicator.data(), mode, box_time, timer, terminal_status))
 				need_terminal_update = false;
 		}
 		terminal.poll();
@@ -1440,6 +1433,7 @@ private:
 	volatile State state;
 	volatile uint8_t mode;
 	volatile uint16_t timer;
+	volatile uint16_t box_time;
 //DynTimer//	volatile uint16_t checkTimer;
 //DynTimer//	volatile uint8_t checkTimerHelper;
 	//int16_t red;
@@ -1601,6 +1595,7 @@ bool System::timeset ()
 		timer = redIndicator.time();
 		if (timer == 0)
 			timer = 60*3;
+		box_time = timer;
 		redIndicator.time(timer);
 		greenIndicator.put(5, redIndicator.get(5));
 		redIndicator.zero(5);
@@ -2002,6 +1997,18 @@ bool IRController::readyButton (Codes code, bool again)
 	}
 
 	return false;
+}
+
+void Terminal::fill3digits (uint8_t *buff, uint16_t data) {
+	register uint8_t a, b;
+	a = data%10;
+	buff[2] = a + '0';
+	b = data/10;
+	a = b%10;
+	buff[1] = a + '0';
+	b = b/10;
+	a = b%10;
+	buff[0] = a + '0';
 }
 
 int main (void) 
