@@ -27,42 +27,6 @@ using namespace AVRLIB;
 using IO::Bit;
 using IO::Port;
 
-/*struct Fifo
-{
-	static const uint8_t max = 14;
-	uint8_t buff[max];
-	uint8_t tail;
-	uint8_t head;
-	
-	Fifo (): tail(0), head(0) {}
-	
-	void fix_head()
-	{
-		head = head < max ? head : 0;
-	}
-	void fix_tail()
-	{
-		tail = tail < max ? tail : 0;
-	}
-	bool empty()
-	{
-		return head == tail;
-	}
-	void push(uint8_t data)
-	{
-		buff[head++] = data;
-		fix_head();
-	}
-	uint8_t pop()
-	{
-		
-		uint8_t ret = buff[tail++];
-		fix_tail();
-		return ret;
-	}
-};*/
-
-//Fifo fifo;
 template <class Strobe, class Enable>
 class Indicator
 {
@@ -76,6 +40,7 @@ class Indicator
 	uint8_t send_index;
 	uint8_t send_number;
 	uint8_t send_digit;
+	bool dot;
 public:
 	static void init ()
 	{
@@ -123,7 +88,11 @@ public:
 	void mode (uint8_t mode)
 	{
 		minus (5, mode + 0xA);
-	}	
+	}
+	void undot ()
+	{
+		dot = false;
+	}
 	void reset ()
 	{
 		for (int i = 0; i < 6*3; i++)
@@ -131,8 +100,9 @@ public:
 		overflow = false;
 		flag = true;
 		spi_in_progress = false;
+		dot = true;
 		Spi::stop();
-	}	
+	}
 	void kick (uint8_t index) { inc (index, 9); }
 	const uint8_t* data () { return (uint8_t*)Line; }
 };
@@ -165,7 +135,7 @@ const uint8_t Indicator<Strobe, Enable>::Leds[] =
 	0x73,
 	0x3d,
 	0x2d,
-    	0x00,
+	0x00,
 	0x20
 };
 
@@ -316,15 +286,7 @@ public:
 		init();
 	}
 
-	static void start (uint8_t time = 10, uint8_t num = 1)
-	{
-	//	if (time == 1 && checkTimer == 1 && num == 1)
-	//		checkTimer = 2, lastCheckTimer = 1;
-	//	else 
-			lastCheckTimer = checkTimer = time;
-		checkNum = num;
-		run();
-	}
+	static void start (uint8_t time = 10, uint8_t num = 1);
 
 	static void restart ()
 	{
@@ -530,7 +492,6 @@ private:
 		if (sig == VeryShort)
 			return Error;
 		
-asm ("; --start-- IRController::delta");
 		switch (state) {
 		case Wait:
 			return Wait;
@@ -546,7 +507,7 @@ asm ("; --start-- IRController::delta");
 			}
 			if (sig == Short)
 				return Start1;
-			break;	
+			break;
 		case Start1:
 			if (sig == Short) {
 				if (emit (true))
@@ -571,56 +532,11 @@ asm ("; --start-- IRController::delta");
 			}
 		}
 
-/*		
-		if (state == Wait)
-			return Wait;
-		else if (state == Ready)
-			return Ready;
-		else if (state == Error)
-			return Error;
-		else if (state == Mid1) {
-			if (sig == Long) {
-				if (emit (false))
-					return Ready;
-				return Mid2;
-			}
-			if (sig == Short)
-				return Start1;
-		} else if (state == Start1) {
-			if (sig == Short) {
-				if (emit (true))
-					return Ready;
-				return Mid1;
-			}
-		} else if (state == Mid2) {
-			if (sig == Long) {
-				if (emit (true))
-					return Ready;
-				return Mid1;
-			}
-			if (sig == Short)
-				return Start2;
-		} else if (state == Start2) {
-			if (sig == Short) {
-				if (emit (false))
-					return Ready;
-				return Mid2;
-			}
-		}*/
-asm ("; --end-- IRController::delta");
-		
-		return Error;		
+		return Error;
 	}
 
-	bool emit (bool);	
+	bool emit (bool);
 
-
-//public:
-
-//	union raw {
-//		uint16_t data;
-//		uint8_t byte[2];
-//	};
 
 	volatile uint8_t cnt;
 	volatile uint8_t addr;
@@ -631,7 +547,6 @@ asm ("; --end-- IRController::delta");
 	volatile State state;
 	volatile uint8_t checkTimer;
 	volatile uint8_t offset;
-//	volatile raw data;
 };
 
 class UART
@@ -1192,10 +1107,19 @@ public:
 	bool pressed ();
 	void result ()
 	{
-		//uint16_t red = redIndicator.total();
-		//uint16_t green = greenIndicator.total();
-		//redIndicator.put(5,red);
-		//greenIndicator.put(5,green);
+		//uint16_t total;
+		//total = redIndicator.total();
+		//if (total > 999)
+		//	total /= 10;
+		//else
+		//	redIndicator.undot();
+		//redIndicator.put(5,total);
+		//total = greenIndicator.total();
+		//if (total > 999)
+		//	total /= 10;
+		//else
+		//	greenIndicator.undot();
+		//greenIndicator.put(5,total);
 		redIndicator.put(5,redIndicator.total());
 		greenIndicator.put(5,greenIndicator.total());
 	}
@@ -1232,13 +1156,6 @@ public:
 		modeButton.check();
 		minuteButton.check();
 
-//DynTimer//		if(checkTimer != 0) {
-//DynTimer//			if (--checkTimerHelper == 0)
-//DynTimer//				--checkTimer;
-//DynTimer//		}
-//DynTimer//		if(checkTimerHelper == 0)
-//DynTimer//			checkTimerHelper = 100;
-
 		ircontroller.check();
 	}
 
@@ -1247,11 +1164,6 @@ public:
 		greenIndicator.display_next();	
 		redIndicator.display_next();	
 	}
-
-//	void checkTerminal ()
-//	{
-//		terminal.check();	
-//	}
 
 	void signalIRController ()
 	{
@@ -1268,46 +1180,7 @@ public:
 		dt = dT > 0xff ? 0xff : dT;
 		
 		last = cnt;
-		//if (dt > 0 && dt != 0xff) {
-		//	if (dt > max) {
-		//		min = max;
-		//		max = dt;
-		//	} else if (dt > min)
-		//		min = dt;
-		//}
-		//static uint8_t ck = 0;
-		//if (ircontroller.checkTimer == 0) {
-		//	ck++;
-		//	return;
-		//}
-		//if (ircontroller.checkTimer != ck) {
-		//	greenIndicator.put(2,ircontroller.checkTimer);
-		//	greenIndicator.put(0,max);
-		//	greenIndicator.put(1,min);
-		//	greenIndicator.put(0,ircontroller.toggle);
-		
-		//	if (dt > ((IRC_LONG + IRC_SHORT) / 2L) && max < 5) {
-		//		greenIndicator.put(max,dt);
-		//		redIndicator.put(max,min);
-		//		max++;
-		//	}
-		//	if (((ircontroller.checkTimer > IRC_MAX || dt > (2L * IRC_LONG))) && max >= 5) min = max = 0;
-		//	else min++;
-		
-		//	redIndicator.put(3,ircontroller.checkTimer);
-		//	redIndicator.put(2,((IRC_LONG + IRC_SHORT) / 2L));
-		//	redIndicator.put(1,IRC_SHORT);
-		//	redIndicator.put(0,IRC_LONG);
-		
-		//}
-		//ck = 
-		//ircontroller.checkTimer = 0;
-		//ircontroller.signal();
 
-//		if (USR & _BV(UDRE))
-//			UDR = dt;
-//		else
-//			fifo.push (dt);
 		ircontroller.signal(dt);
 	}
 
@@ -1315,12 +1188,6 @@ public:
 //	{
 //		terminal.next();	
 //	}
-
-//DynTimer//	void checkInit (uint16_t time = 0)
-//DynTimer//	{
-//DynTimer//		checkTimer = time;
-//DynTimer//		checkTimerHelper = 100;
-//DynTimer//	}
 
 	void secondTimer ()
 	{
@@ -1354,7 +1221,6 @@ public:
 		minuteButton.reset();
 
 		timer = 0;
-//DynTimer//		checkInit();
 	}
 
 	void reset_all ()
@@ -1434,8 +1300,6 @@ private:
 	volatile uint8_t mode;
 	volatile uint16_t timer;
 	volatile uint16_t box_time;
-//DynTimer//	volatile uint16_t checkTimer;
-//DynTimer//	volatile uint8_t checkTimerHelper;
 	//int16_t red;
 	//int16_t green;
 	volatile bool need_terminal_update;
@@ -1530,11 +1394,6 @@ void Button<input>::poll ()
 
 static System system;
 
-//ISR(UART_RX_vect)
-//{
-//	system.checkTerminal();
-//}
-
 ISR(TIMER0_OVF_vect)
 {
 	system.checkSensors();
@@ -1620,6 +1479,7 @@ void System::logic ()
 			if (timeset()) {
 				state = Box;
 				terminal_update('B', true);
+				Dynamic::start(6);
 			}
 			break;
 		case Box:
@@ -1637,15 +1497,12 @@ void System::logic ()
 			}
 			break;
 		case Result:
+			ircontroller.reset();
 			result ();
 			terminal_update('R', true);
 			Dynamic::start();
-//DynTimer//			checkInit(CHECK_LONG_TIME(10));
 			state = Dead;
 		case Dead:
-//DynTimer//			if (checkTimer > 0)
-//DynTimer//				break;
-//DynTimer//			Dynamic::stop();
 			if (!pressed())
 				break;
 			reinit();
@@ -1694,7 +1551,7 @@ void Indicator<Strobe, Enable>::display_next()
 	else
 		zero_digit = false;
 
-	if ((send_number == 5 ) && (send_digit_tmp == 0 && digit < 10))
+	if ((send_number == 5 ) && (send_digit_tmp == 0 && digit < 10) && dot)
 		Spi::send(0xff - (Leds[digit] + 0x80));
 	else
 		Spi::send(0xff - Leds[digit]);
@@ -1848,66 +1705,6 @@ bool IRController::emit (bool bit)
 	bool done = false;
 
 asm ("; --start-- IRController::emit");
-/*	data.data << 1;
-	if (bit) data.data |= 1;
-	offset++;
-	if (offset == LastBit) {
-
-		cmd = data.byte[0] & 0x3f;
-		if (data.byte[1] & 0x10) cmd |= 0x40;
-		toggle = (data.byte[1] & 0x08) != 0;
-		addr = (data.data >> 5) & 0x1f;
-		done = true;
-	}*/
-//	if (USR & _BV(UDRE))
-//		UDR = state;
-//	else
-//		fifo.push (state);
-/*
-	if (offset == ToggleBit) {
-		toggle = bit;
-		offset = AddrBit_4;
-	} else if (offset == AddrBit_4) {
-		bit ? addr |= _BV(4) : addr &= ~_BV(4);
-		offset = AddrBit_3;
-	} else if (offset == AddrBit_3) {
-		bit ? addr |= _BV(3) : addr &= ~_BV(3);
-		offset = AddrBit_2;
-	} else if (offset == AddrBit_2) {
-		bit ? addr |= _BV(2) : addr &= ~_BV(2);
-		offset = AddrBit_1;
-	} else if (offset == AddrBit_1) {
-		bit ? addr |= _BV(1) : addr &= ~_BV(1);
-		offset = AddrBit_0;
-	} else if (offset == AddrBit_0) {
-		bit ? addr |= _BV(0) : addr &= ~_BV(0);
-		offset = CmdBit_5;
-	} else if (offset == CmdBit_6) {
-		bit ? cmd |= _BV(6) : cmd &= ~_BV(6);
-		offset = ToggleBit;
-	} else if (offset == CmdBit_5) {
-		bit ? cmd |= _BV(5) : cmd &= ~_BV(5);
-		offset = CmdBit_4;
-	} else if (offset == CmdBit_4) {
-		bit ? cmd |= _BV(4) : cmd &= ~_BV(4);
-		offset = CmdBit_3;
-	} else if (offset == CmdBit_3) {
-		bit ? cmd |= _BV(3) : cmd &= ~_BV(3);
-		offset = CmdBit_2;
-	} else if (offset == CmdBit_2) {
-		bit ? cmd |= _BV(2) : cmd &= ~_BV(2);
-		offset = CmdBit_1;
-	} else if (offset == CmdBit_1) {
-		bit ? cmd |= _BV(1) : cmd &= ~_BV(1);
-		offset = CmdBit_0;
-	} else if (offset == CmdBit_0) {
-		bit ? cmd |= _BV(0) : cmd &= ~_BV(0);
-		done = true;
-		cnt++;
-		offset = InitBit;
-	} else {
-		offset = InitBit;
-	}*/
 	switch (offset)
 	{
 		case ToggleBit:
@@ -1997,6 +1794,16 @@ bool IRController::readyButton (Codes code, bool again)
 	}
 
 	return false;
+}
+
+void Dynamic::start (uint8_t time, uint8_t num)
+{
+//	if (time == 1 && checkTimer == 1 && num == 1)
+//		checkTimer = 2, lastCheckTimer = 1;
+//	else 
+		lastCheckTimer = checkTimer = time;
+	checkNum = num;
+	run();
 }
 
 void Terminal::fill3digits (uint8_t *buff, uint16_t data) {
