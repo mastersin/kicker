@@ -42,11 +42,7 @@ class Indicator
 	uint8_t send_digit;
 	bool dot;
 public:
-	static void init ()
-	{
-		Spi::init (Spi::mode_master, Spi::rate_64, Spi::isr_enable);	
-	}
-	Indicator (): flag(true), overflow(false), spi_in_progress(false)
+	Indicator (): flag(true), overflow(false), spi_in_progress(false), dot(true)
 	{
 		Strobe::init();
 		Enable::init();
@@ -93,16 +89,7 @@ public:
 	{
 		dot = false;
 	}
-	void reset ()
-	{
-		for (int i = 0; i < 6*3; i++)
-			Line[i] = 0;
-		overflow = false;
-		flag = true;
-		spi_in_progress = false;
-		dot = true;
-		Spi::stop();
-	}
+	void reset ();
 	void kick (uint8_t index) { inc (index, 9); }
 	const uint8_t* data () { return (uint8_t*)Line; }
 };
@@ -112,7 +99,7 @@ class Indicators
 public:
 	static void init ()
 	{
-		Spi::init (Spi::mode_master, Spi::rate_64, Spi::isr_enable);	
+		Spi::init (Spi::mode_master, Spi::rate_64, Spi::isr_enable);
 	}
 };
 
@@ -299,7 +286,7 @@ public:
 		//TCCR2 |= _BV(CS22);
 
 		//// Prescale 32 - 8000000/32/125 = 2000Hz
-		TCCR2 |= _BV(CS21) | _BV(CS20);		
+		TCCR2 |= _BV(CS21) | _BV(CS20);
 		OCR2 = 125;
 		
 		//// Prescale 32 - 8000000/8/250 = 4000Hz
@@ -1107,21 +1094,21 @@ public:
 	bool pressed ();
 	void result ()
 	{
-		//uint16_t total;
-		//total = redIndicator.total();
-		//if (total > 999)
-		//	total /= 10;
-		//else
-		//	redIndicator.undot();
-		//redIndicator.put(5,total);
-		//total = greenIndicator.total();
-		//if (total > 999)
-		//	total /= 10;
-		//else
-		//	greenIndicator.undot();
-		//greenIndicator.put(5,total);
-		redIndicator.put(5,redIndicator.total());
-		greenIndicator.put(5,greenIndicator.total());
+		uint16_t total;
+		total = redIndicator.total();
+		if (total > 999)
+			total /= 10;
+		else
+			redIndicator.undot();
+		redIndicator.put(5,total);
+		total = greenIndicator.total();
+		if (total > 999)
+			total /= 10;
+		else
+			greenIndicator.undot();
+		greenIndicator.put(5,total);
+		//redIndicator.put(5,redIndicator.total());
+		//greenIndicator.put(5,greenIndicator.total());
 	}
 	
 	void poll ()
@@ -1688,7 +1675,7 @@ void Indicator<Strobe, Enable>::zero (uint8_t index)
 	Line[index * 3 + 2] = 0;
 
 	flag = true;
-}	
+}
 
 template <typename Strobe, typename Enable>
 void Indicator<Strobe, Enable>::minus (uint8_t index, uint8_t middle)
@@ -1698,7 +1685,19 @@ void Indicator<Strobe, Enable>::minus (uint8_t index, uint8_t middle)
 	Line[index * 3 + 2] = 0x11;
 
 	flag = true;
-}	
+}
+
+template <typename Strobe, typename Enable>
+void Indicator<Strobe, Enable>::reset ()
+{
+	for (int i = 0; i < 6*3; i++)
+		Line[i] = 0;
+	overflow = false;
+	flag = true;
+	spi_in_progress = false;
+	dot = true;
+	Spi::stop();
+}
 
 bool IRController::emit (bool bit)
 {
