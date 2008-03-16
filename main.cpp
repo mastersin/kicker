@@ -15,7 +15,8 @@ using namespace AVRLIB;
 
 #define CLOCK F_OSC    /* clock rate of microcontroller (in Hz) */
 #define SECOND_OCR ((uint16_t) (((unsigned long)(CLOCK) / 256L) / 10L))
-#define CHECK_TIME(us) ((uint8_t) ((us) *((((unsigned long)(CLOCK) / 256L) / 8L) / 1000L)))
+#define CHECK_SENSOR_TIME(us) ((uint8_t) ((us) *((((unsigned long)(CLOCK) / 256L) / 15L) / 1000L)))
+#define CHECK_BUTTON_TIME(us) ((uint8_t) ((us) *((((unsigned long)(CLOCK) / 256L) / 8L) / 1000L)))
 #define CHECK_LONG_TIME(us) ((uint8_t) ((us) *((((unsigned long)(CLOCK) / 256L) / 8L) / 10L)))
 
 // Short Freq = 1/(889 us) = 1124 Hz
@@ -1308,7 +1309,7 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 			last_sensor = checkSensors();
 			if (last_sensor)
 			{
-				checkTimer = CHECK_TIME(1);
+				checkTimer = CHECK_SENSOR_TIME(1);
 				state = Check;
 			}
 			break;
@@ -1332,7 +1333,7 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 				if ((last_sensor & sensor5) != 0) 
 					indicator.kick(4);
 				
-				checkTimer = CHECK_TIME(50);
+				checkTimer = CHECK_SENSOR_TIME(50);
 				state = Dead;
 			}			
 			break;
@@ -1352,7 +1353,7 @@ void Button<input>::poll ()
 		case Wait:
 			if (input::get())
 			{
-				checkTimer = CHECK_TIME(10);
+				checkTimer = CHECK_BUTTON_TIME(10);
 				state = Check;
 			}
 			break;
@@ -1367,7 +1368,7 @@ void Button<input>::poll ()
 			}
 		case Press:
 			if (!input::get()) {		
-				checkTimer = CHECK_TIME(10);
+				checkTimer = CHECK_BUTTON_TIME(10);
 				state = Dead;
 			}			
 			break;

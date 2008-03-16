@@ -216,6 +216,33 @@ AVRDUDE_FLAGS += $(AVRDUDE_ERASE_COUNTER)
 
 
 
+
+# Programming support using uisp. Settings and variables.
+
+# Programming hardware: alf avr910 avrisp bascom bsd 
+# dt006 pavr picoweb pony-stk200 sp12 stk200 stk500
+#
+# Type: avrdude -c ?
+# to get a full listing.
+#
+UISP_PROGRAMMER = stk200
+
+# lpt1 = parallel port. Use com1 to connect to serial port.
+#UISP_PORT = /dev/parport0    # programmer connected to parallel device
+UISP_PORT = 0x378    # direct use parallel device
+
+UISP_WRITE_FLASH = --upload if=$(TARGET).hex
+UISP_VERIFY_FLASH = --verify if=$(TARGET).hex
+UISP_ERASE_FLASH = --erase
+#UISP_WRITE_EEPROM = -U eeprom:w:$(TARGET).eep
+#UISP_VERIFY_EEPROM = -U eeprom:w:$(TARGET).eep
+
+
+UISP_FLAGS = -dpart=$(MCU) -dlpt=$(UISP_PORT) -dprog=$(UISP_PROGRAMMER)
+UISP_FLAGS += -v --verify
+
+
+
 # ---------------------------------------------------------------------------
 
 # Define directories, if needed.
@@ -235,6 +262,7 @@ OBJDUMP = avr-objdump
 SIZE = avr-size
 NM = avr-nm
 AVRDUDE = avrdude
+UISP = uisp
 REMOVE = rm -f
 COPY = cp
 
@@ -326,11 +354,25 @@ sizeafter:
 gccversion : 
 	@$(CC) --version
 
-
-
 # Program the device.  
-program: $(TARGET).hex $(TARGET).eep
+program: program-uisp
+
+# Program the device with avrdude.  
+program-avrdude: $(TARGET).hex $(TARGET).eep
 	$(AVRDUDE) $(AVRDUDE_FLAGS) $(AVRDUDE_WRITE_FLASH) $(AVRDUDE_WRITE_EEPROM)
+
+parport:
+	sudo lsmod | grep ppdev >/dev/null 2>&1 || sudo modprobe ppdev
+
+# Program the device uisp.  
+# Example: sudo uisp -dprog=stk200 -dlpt=0x378 -dpart=at90s8535 -v --upload if=main-0.2.1.hex  
+program-uisp: $(TARGET).hex $(TARGET).eep
+	sudo $(UISP) $(UISP_FLAGS) $(UISP_ERASE_FLASH) $(UISP_ERASE_EEPROM) &&
+		sudo $(UISP) $(UISP_FLAGS) $(UISP_WRITE_FLASH) $(UISP_WRITE_EEPROM)
+
+# Veirify the device uisp.  
+verify-uisp: $(TARGET).hex $(TARGET).eep $(UISP_PORT)
+	sudo $(UISP) $(UISP_FLAGS) $(UISP_VERIFY_FLASH) $(UISP_VERIFY_EEPROM)
 
 
 
