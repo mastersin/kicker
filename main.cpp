@@ -15,7 +15,8 @@ using namespace AVRLIB;
 
 #define CLOCK F_OSC    /* clock rate of microcontroller (in Hz) */
 #define SECOND_OCR ((uint16_t) (((unsigned long)(CLOCK) / 256L) / 10L))
-#define CHECK_SENSOR_TIME(us) ((uint8_t) ((us) *((((unsigned long)(CLOCK) / 256L) / 15L) / 1000L)))
+#define CHECK_SENSOR_TIME(us) ((uint8_t) ((us) *((((unsigned long)(CLOCK) / 256L) / 8L) / 1000L)))
+#define CHECK_SENSOR_DEAD_TIME(us) ((uint8_t) ((us) *(((unsigned long)(CLOCK) / 256L) / 10000L)))
 #define CHECK_BUTTON_TIME(us) ((uint8_t) ((us) *((((unsigned long)(CLOCK) / 256L) / 8L) / 1000L)))
 #define CHECK_LONG_TIME(us) ((uint8_t) ((us) *((((unsigned long)(CLOCK) / 256L) / 8L) / 10L)))
 
@@ -147,15 +148,15 @@ protected:
 	{
 		sensor_type mask = sensors::get();
 
-		if ((mask & sensor1) == 0) 
+		if ((mask & sensor1)) 
 			return sensor1;
-		if ((mask & sensor2) == 0) 
+		if ((mask & sensor2)) 
 			return sensor2;
-		if ((mask & sensor3) == 0) 
+		if ((mask & sensor3)) 
 			return sensor3;
-		if ((mask & sensor4) == 0) 
+		if ((mask & sensor4)) 
 			return sensor4;
-		if ((mask & sensor5) == 0) 
+		if ((mask & sensor5)) 
 			return sensor5;
 
 		return 0;
@@ -170,10 +171,12 @@ public:
 
 	template <class IndicatorType>
 	void poll (IndicatorType &indicator);
-	void check ()
+	void check (bool ck8)
 	{
-		if(checkTimer != 0)
-			--checkTimer;
+		if(checkTimer != 0) {
+			if (state != Dead || ck8)
+				--checkTimer;
+		}
 	}
 	void reset ()
 	{
@@ -187,7 +190,9 @@ private:
 	{
 		Wait,
 		Check,
+		CheckBack,
 		Kick,
+		Error,
 		Dead
 	};
 
@@ -1134,17 +1139,19 @@ public:
 
 	}
 	
-	void checkSensors ()
+	void checkSensors (bool new_style)
 	{
-		redSensor.check();
-		greenSensor.check();
+		redSensor.check(!new_style);
+		greenSensor.check(!new_style);
 		
-		startButton.check();
-		resetButton.check();
-		modeButton.check();
-		minuteButton.check();
+		if (!new_style) {
+			startButton.check();
+			resetButton.check();
+			modeButton.check();
+			minuteButton.check();
 
-		ircontroller.check();
+			ircontroller.check();
+		}
 	}
 
 	void checkIndicators ()
@@ -1309,33 +1316,57 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 			last_sensor = checkSensors();
 			if (last_sensor)
 			{
-				checkTimer = CHECK_SENSOR_TIME(1);
+				checkTimer = CHECK_SENSOR_TIME(10);
 				state = Check;
 			}
+
 			break;
 		case Check:
 			if (checkTimer > 0) {
-				if ((sensors::get() & last_sensor) != 0)
+				if (!(sensors::get() & last_sensor))
 					state = Wait;
-				break;
-			} else
+			} else {
 				state = Kick;
+				checkTimer = CHECK_SENSOR_TIME(10);
+			}
+
+			break;
+		case CheckBack:
+			if (checkTimer > 0) {
+				if (!(sensors::get() & last_sensor)) {
+					state = Kick;
+					checkTimer = CHECK_SENSOR_TIME(10);
+				}
+			} else
+				state = Error;
+
+			break;
+		case Error: // Current logic dose not sense long signal from sensor
+			state = Kick;
+			checkTimer = CHECK_SENSOR_TIME(10);
 		case Kick:
-			if ((sensors::get() & last_sensor) != 0) {		
-				if ((last_sensor & sensor1) != 0) 
-					indicator.kick(0);
-				if ((last_sensor & sensor2) != 0) 
-					indicator.kick(1);
-				if ((last_sensor & sensor3) != 0) 
-					indicator.kick(2);
-				if ((last_sensor & sensor4) != 0) 
-					indicator.kick(3);
-				if ((last_sensor & sensor5) != 0) 
-					indicator.kick(4);
-				
-				checkTimer = CHECK_SENSOR_TIME(50);
-				state = Dead;
-			}			
+			if (checkTimer > 0) {
+				if (sensors::get() & last_sensor) {
+					checkTimer = CHECK_SENSOR_DEAD_TIME(50);
+					state = CheckBack;
+				}
+				break;
+			}
+
+			if (last_sensor & sensor1)
+				indicator.kick(0);
+			if (last_sensor & sensor2)
+				indicator.kick(1);
+			if (last_sensor & sensor3)
+				indicator.kick(2);
+			if (last_sensor & sensor4)
+				indicator.kick(3);
+			if (last_sensor & sensor5)
+				indicator.kick(4);
+
+			state = Dead;
+			checkTimer = CHECK_SENSOR_DEAD_TIME(50);
+
 			break;
 		case Dead:
 			if (checkTimer > 0)
@@ -1384,7 +1415,8 @@ static System system;
 
 ISR(TIMER0_OVF_vect)
 {
-	system.checkSensors();
+	static uint8_t counter = 0;
+	system.checkSensors(counter++ % 8);
 }
 
 ISR(TIMER1_COMPA_vect)
@@ -1820,10 +1852,10 @@ void Terminal::fill3digits (uint8_t *buff, uint16_t data) {
 
 int main (void) 
 {
-	TIMSK  |= _BV(OCIE1A) | _BV(TOIE0);
+	TIMSK |= _BV(OCIE1A) | _BV(TOIE0);
 	TCCR1A = 0x00;
 	TCCR1B = 0x0C;
-	TCCR0  = 0x02;
+	TCCR0  = 0x01; // Counter Prescale = CK
 	OCR1A  = SECOND_OCR;
 
 	sei();

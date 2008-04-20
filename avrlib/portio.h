@@ -342,7 +342,7 @@ public:
 	}
 	static IO::Mask get()
 	{
-		return pin::get();
+		return on ? pin::get() : ~pin::get();
 	}
 };
 

@@ -367,7 +367,7 @@ parport:
 # Program the device uisp.  
 # Example: sudo uisp -dprog=stk200 -dlpt=0x378 -dpart=at90s8535 -v --upload if=main-0.2.1.hex  
 program-uisp: $(TARGET).hex $(TARGET).eep
-	sudo $(UISP) $(UISP_FLAGS) $(UISP_ERASE_FLASH) $(UISP_ERASE_EEPROM) &&
+	sudo $(UISP) $(UISP_FLAGS) $(UISP_ERASE_FLASH) $(UISP_ERASE_EEPROM) && \
 		sudo $(UISP) $(UISP_FLAGS) $(UISP_WRITE_FLASH) $(UISP_WRITE_EEPROM)
 
 # Veirify the device uisp.  
