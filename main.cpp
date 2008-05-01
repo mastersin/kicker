@@ -173,9 +173,13 @@ public:
 	void poll (IndicatorType &indicator);
 	void check (bool ck8)
 	{
+		static bool ck16 = false;
 		if(checkTimer != 0) {
-			if (state != Dead || ck8)
-				--checkTimer;
+			if (state != Dead || ck8) {
+				if (ck16)
+					--checkTimer;
+				ck16 = !ck16;
+			}
 		}
 	}
 	void reset ()
@@ -1316,7 +1320,8 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 			last_sensor = checkSensors();
 			if (last_sensor)
 			{
-				checkTimer = CHECK_SENSOR_TIME(10);
+				// (8000000/256/8/1000)*2 = 7.8125 -> 1/8000000*256*7 = 0.000224s
+				checkTimer = CHECK_SENSOR_TIME(2);
 				state = Check;
 			}
 
@@ -1327,7 +1332,8 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 					state = Wait;
 			} else {
 				state = Kick;
-				checkTimer = CHECK_SENSOR_TIME(10);
+				// (8000000/256/8/1000)*5 = 19.53125 -> 1/8000000*256*19 = 0.000608s
+				checkTimer = CHECK_SENSOR_TIME(5);
 			}
 
 			break;
@@ -1365,7 +1371,9 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 				indicator.kick(4);
 
 			state = Dead;
-			checkTimer = CHECK_SENSOR_DEAD_TIME(50);
+			// (8000000/256/10000)*80 = 250 -> 1/8000000*256*8*250 = 0.064s
+			// 0.064s on CK8, but 0.128 on CK16
+			checkTimer = CHECK_SENSOR_DEAD_TIME(80);
 
 			break;
 		case Dead:
