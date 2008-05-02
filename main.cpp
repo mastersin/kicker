@@ -185,8 +185,8 @@ public:
 	void reset ()
 	{
 		state = Wait;
-		last_sensor = 0;
-		checkTimer = 0;
+//		last_sensor = 0;
+//		checkTimer = 0;
 	}
 
 private:
@@ -1205,12 +1205,21 @@ public:
 		Dynamic::check();
 	}
 	
+
+	void resetSensors ()
+	{
+		greenSensor.reset();
+		redSensor.reset();
+	}
+
 	void reset ()
 	{
 		state = Wait;
 		//mode = Pair;
 		
 		Dynamic::reset();
+		
+		//resetSensors();
 		
 		greenIndicator.reset();
 		redIndicator.reset();
@@ -1508,6 +1517,7 @@ void System::logic ()
 				state = Box;
 				terminal_update('B', true);
 				Dynamic::start(6);
+				resetSensors();
 			}
 			break;
 		case Box:
