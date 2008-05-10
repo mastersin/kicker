@@ -15,8 +15,8 @@ using namespace AVRLIB;
 
 #define CLOCK F_OSC    /* clock rate of microcontroller (in Hz) */
 #define SECOND_OCR ((uint16_t) (((unsigned long)(CLOCK) / 256L) / 10L))
-#define CHECK_SENSOR_TIME(us) ((uint8_t) ((us) *((((unsigned long)(CLOCK) / 256L) / 8L) / 1000L)))
-#define CHECK_SENSOR_DEAD_TIME(us) ((uint8_t) ((us) *(((unsigned long)(CLOCK) / 256L) / 10000L)))
+#define CHECK_SENSOR_TIME(us) ((uint8_t) (((us) * ((unsigned long)(CLOCK) / 256L)) / 1000000L))
+#define CHECK_SENSOR_DEAD_TIME(ms) ((uint8_t) (((ms) * (((unsigned long)(CLOCK) / 256L) / 8L)) / 1000L))
 #define CHECK_BUTTON_TIME(us) ((uint8_t) ((us) *((((unsigned long)(CLOCK) / 256L) / 8L) / 1000L)))
 #define CHECK_LONG_TIME(us) ((uint8_t) ((us) *((((unsigned long)(CLOCK) / 256L) / 8L) / 10L)))
 
@@ -1329,8 +1329,8 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 			last_sensor = checkSensors();
 			if (last_sensor)
 			{
-				// (8000000/256/8/1000)*2 = 7.8125 -> 1/8000000*256*7 = 0.000224s
-				checkTimer = CHECK_SENSOR_TIME(2);
+				// 1/(1000000/(8000000/256) = 0.03125 = k -> 64us * k = 2
+				checkTimer = CHECK_SENSOR_TIME(64);
 				state = Check;
 			}
 
@@ -1341,8 +1341,8 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 					state = Wait;
 			} else {
 				state = Kick;
-				// (8000000/256/8/1000)*5 = 19.53125 -> 1/8000000*256*19 = 0.000608s
-				checkTimer = CHECK_SENSOR_TIME(5);
+				// 1/(1000000/(8000000/256) = 0.03125 = k -> 320us * k = 10
+				checkTimer = CHECK_SENSOR_TIME(320);
 			}
 
 			break;
@@ -1350,7 +1350,7 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 			if (checkTimer > 0) {
 				if (!(sensors::get() & last_sensor)) {
 					state = Kick;
-					checkTimer = CHECK_SENSOR_TIME(10);
+					checkTimer = CHECK_SENSOR_TIME(320);
 				}
 			} else
 				state = Error;
@@ -1358,11 +1358,12 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 			break;
 		case Error: // Current logic dose not sense long signal from sensor
 			state = Kick;
-			checkTimer = CHECK_SENSOR_TIME(10);
+			checkTimer = CHECK_SENSOR_TIME(320);
 		case Kick:
 			if (checkTimer > 0) {
 				if (sensors::get() & last_sensor) {
-					checkTimer = CHECK_SENSOR_DEAD_TIME(50);
+					// 1/(1000000/(8000000/256) = 0.03125 = k -> 4992us * k = 156
+					checkTimer = CHECK_SENSOR_TIME(4992);
 					state = CheckBack;
 				}
 				break;
@@ -1380,9 +1381,9 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 				indicator.kick(4);
 
 			state = Dead;
-			// (8000000/256/10000)*80 = 250 -> 1/8000000*256*8*250 = 0.064s
-			// 0.064s on CK8, but 0.128 on CK16
-			checkTimer = CHECK_SENSOR_DEAD_TIME(80);
+			// 1/(1000/(8000000/256/8/2)) = 1.953125 = k -> 128ms * k = 250
+			// 250 0.064s on CK8, but 0.128 on CK16
+			checkTimer = CHECK_SENSOR_DEAD_TIME(128);
 
 			break;
 		case Dead:
