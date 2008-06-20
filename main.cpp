@@ -897,8 +897,8 @@ public:
 		buffer[2] = ',';
 		
 		for (register uint8_t i = 0; i < indicator_size; i++) {
-			buffer[i+red_index] = normalize_digit(redLine[indicator_size-1-i]);
-			buffer[i+green_index] = normalize_digit(greenLine[indicator_size-1-i]);
+			buffer[i+red_index] = normalize_digit(redLine[i]);
+			buffer[i+green_index] = normalize_digit(greenLine[i]);
 		}
 		buffer[mode_index] = normalize_alpha(mode);
 		fill3digits(buffer+time_index, time);
