@@ -924,6 +924,10 @@ public:
 		receiver.poll();
 	}
 
+	bool ready ()
+	{
+		return receiver.ready(false);
+	}
 	bool readyStart ()
 	{
 		return receiver.readyStart();
@@ -1466,6 +1470,7 @@ bool System::pressed ()
 	if (modeButton.get(false) ||
 	    minuteButton.get(false) ||
 	    startButton.get(false)  ||
+	    terminal.ready()        ||
 	    ircontroller.ready(false)) {
 		return true;
 	}
