@@ -1,0 +1,186 @@
+// Protocol:
+// Delimeter (Ограничитель) - ':'
+// Separator (Разделитель) - '.'
+// Data      (Данные) - [0-9A-Z]
+// Packet:
+// - Delimeter
+// - Length1 (high part of byte)
+// - Length2 (low part of byte) N = to_hex(Length1) << 4 + to_hex(Length2)
+// - Separator
+// - Data1
+// - Data2
+// - Data3
+// - ...
+// - DataN
+// - Separator
+// - Checksum1 (high part of byte)
+// - Checksum2 (low part of byte) CheckSum = to_hex(Checksum1) << 4 + to_hex(Checksum2)
+
+
+Посылка:
+________________
+:
+размер
+,
+красный результат (5 троек)
+зелёный результат (5 троек)
+режим ("бокс" или "тренировка")
+текущее время (прошедшее с начала боя)
+полное время (полное время боя)
+состояние
+,
+контрольная сумма
+________________
+
+Код:
+
+class Terminal
+{
+	static const uint8_t indicator_size = 3*5;
+	static const uint8_t length_size    = 3;
+	static const uint8_t mode_size      = 1;
+	static const uint8_t time_size      = 3;
+	static const uint8_t full_size      = 3;
+	static const uint8_t status_size    = 1;
+	static const uint8_t checksum_size  = 3;
+	static const uint8_t buffer_size    = length_size+indicator_size*2+mode_size+full_size+time_size+status_size+checksum_size;
+	static const uint8_t red_index      = length_size;
+	static const uint8_t green_index    = length_size+indicator_size;
+	static const uint8_t mode_index     = length_size+indicator_size*2;
+	static const uint8_t time_index     = length_size+indicator_size*2+mode_size;
+	static const uint8_t full_index     = length_size+indicator_size*2+mode_size+time_size;
+	static const uint8_t status_index   = length_size+indicator_size*2+mode_size+time_size+full_size;
+	static const uint8_t checksum_index = length_size+indicator_size*2+mode_size+time_size+full_size+status_size;
+
+	enum State
+	{
+		Wait,
+		Send,
+		Done,
+		Error
+	};
+
+	TerminalReceiver receiver;
+	
+public:
+	Terminal(): state(Wait) {
+		UART::init (MYUBRR);
+	}
+	
+	bool update (const uint8_t *redLine,
+		     const uint8_t *greenLine,
+		     uint8_t mode, uint16_t full, uint16_t time, uint8_t status)
+	{
+		if (state == Send && UART::send_ready())
+			return false;
+		
+		register uint8_t tmp = buffer_size-length_size-checksum_size;
+		buffer[0] = normalize_hex(tmp>>4);
+		buffer[1] = normalize_hex(tmp);
+		buffer[2] = ',';
+		
+		for (register uint8_t i = 0; i < indicator_size; i++) {
+			buffer[i+red_index] = normalize_digit(redLine[i]);
+			buffer[i+green_index] = normalize_digit(greenLine[i]);
+		}
+		buffer[mode_index] = normalize_alpha(mode);
+		fill3digits(buffer+time_index, time);
+		fill3digits(buffer+full_index, full);
+		buffer[status_index] = check_alpha(status);
+
+		tmp = 0;
+		for (register uint8_t i = 0; i < (buffer_size-checksum_size); i++)
+			tmp += buffer[i];
+		buffer[checksum_index] = ',';
+		buffer[checksum_index+1] = normalize_hex(tmp>>4);
+		buffer[checksum_index+2] = normalize_hex(tmp);
+
+		state = Send;
+		index = 0;
+		UART::send(':');
+
+		return true;
+	}
+
+	void poll() {
+		next();
+		receiver.poll();
+	}
+
+	bool ready ()
+	{
+		return receiver.ready(false);
+	}
+	bool readyStart ()
+	{
+		return receiver.readyStart();
+	}
+	bool readyReset ()
+	{
+		return receiver.readyReset();
+	}
+	bool readyMinutePlus ()
+	{
+		return receiver.readyMinutePlus();
+	}
+	bool readyMinuteMinus ()
+	{
+		return receiver.readyMinuteMinus();
+	}
+	bool readyMute ()
+	{
+		return receiver.readyMute();
+	}
+	bool readyMode ()
+	{
+		return receiver.readyMode();
+	}
+	bool readyTime ()
+	{
+		return receiver.readyTime();
+	}
+	uint16_t getTime ()
+	{
+		return receiver.getData16();
+	}
+
+private:
+	void next() {
+		if (state != Send || !UART::send_ready())
+			return;
+
+		if (index < buffer_size) {
+			UART::send(buffer[index++]);
+		} else {
+			state = Done;
+			UART::send(0);
+		}
+	}
+	uint8_t normalize_digit (uint8_t byte) {
+		if (byte > 9)
+			return '.';
+		return byte + '0';	
+	}
+	uint8_t normalize_alpha (uint8_t byte) {
+		if (byte > 'Z'-'A')
+			return '.';
+		return byte + 'A';
+	}
+	uint8_t normalize_hex (uint8_t byte) {
+		static const uint8_t mask = 0x0f;
+		byte &= mask;
+		if (byte > 9)
+			return byte - 0xA + 'A';
+		return byte + '0';
+	}
+	uint8_t check_alpha (uint8_t byte) {
+		if (byte < 'A' || byte > 'Z')
+			return '.';
+		return byte;
+	}
+	void fill3digits (uint8_t *buff, uint16_t data);
+
+	uint8_t buffer[buffer_size];
+	uint8_t index;
+	volatile State state;
+};
