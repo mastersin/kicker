@@ -30,12 +30,12 @@ template <Reg reg, Ext ext> volatile uint8_t& port_ref();
 
 // Определение специализаций шаблонов для регистров внешних прерываний:
 #define AVRLIB_EXTINTERRUPT_ENABLED
-#if defined (__AVR_ATmega8535__) || defined (__AVR_AT90S8535__)
+#if defined (__AVR_ATmega8535__) || defined (__AVR_ATmega16__) || defined (__AVR_AT90S8535__)
 #  define EXTERNAL_INTERRUPT0_ENABLED
 #  define EXTERNAL_INTERRUPT1_ENABLED
 typedef Bit<IO::port_D,IO::bit_2,true>  INT0_bit;
 typedef Bit<IO::port_D,IO::bit_3,false> INT1_bit;
-#if   defined (__AVR_ATmega8535__)
+#if   defined (__AVR_ATmega8535__) || defined (__AVR_ATmega16__)
 #    define EXTERNAL_INTERRUPT2_ENABLED
 typedef Bit<IO::port_B,IO::bit_3,false> INT2_bit;
 template <> inline volatile uint8_t& port_ref<reg_control, int_0>() { return GICR; }
@@ -88,7 +88,7 @@ protected:
 //	typedef Interrupt::RegSense<ext> RegSense;
 	static void set_sense (Interrupt::Sense sense)
 	{
-		switch (ext) {
+		switch (sense) {
 		case Interrupt::low_level:
 			StatusControl () &= ~_BV (ISCn0);
 			StatusControl () &= ~_BV (ISCn1);

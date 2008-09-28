@@ -38,10 +38,12 @@
 
 
 # MCU name
-MCU = at90s8535
+#MCU = at90s8535
+MCU = atmega16
 
 # Main Oscillator Frequency
 # This is only used to define F_OSC in all assembler and c-sources.
+#F_OSC = 16000000
 F_OSC = 8000000
 
 # Output format. (can be srec, ihex, binary)

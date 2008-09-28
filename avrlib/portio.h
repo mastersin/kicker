@@ -43,7 +43,7 @@ template <> inline volatile uint8_t& port_ref<port_##_port_, reg_PIN >() { retur
 #if defined (__AVR_ATtiny15__)
 #include <avr/attiny15.1.h>
 AVRLIB_SPECIALIZE_PORT_REF(B)
-#elif defined (__AVR_ATmega8535__) || defined (__AVR_AT90S8535__)
+#elif defined (__AVR_ATmega8535__) || defined (__AVR_AT90S8535__) || defined (__AVR_ATmega16__)
 AVRLIB_SPECIALIZE_PORT_REF(A)
 AVRLIB_SPECIALIZE_PORT_REF(B)
 AVRLIB_SPECIALIZE_PORT_REF(C)

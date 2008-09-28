@@ -251,6 +251,7 @@ private:
 	volatile uint8_t checkTimer;
 };
 
+#define PRESCALE_COUNT(Hz) ((CLOCK/32)/Hz)
 
 class Dynamic
 {
@@ -258,7 +259,11 @@ public:
 	static void init()
 	{
 		checkTimer = 0;
+#if defined (__AVR_ATmega8535__) || defined (__AVR_ATmega16__)
+		TCCR2 = _BV(COM20) | _BV(WGM21);
+#else
 		TCCR2 = _BV(COM20) | _BV(CTC2);
+#endif
 		DDRD |= _BV(PD7);
 	}
 
@@ -297,7 +302,7 @@ public:
 
 		//// Prescale 32 - 8000000/32/125 = 2000Hz
 		TCCR2 |= _BV(CS21) | _BV(CS20);
-		OCR2 = 125;
+		OCR2 = PRESCALE_COUNT(2000);
 		
 		//// Prescale 32 - 8000000/8/250 = 4000Hz
 		//TCCR2 |= _BV(CS21);
@@ -396,8 +401,13 @@ asm ("; --xxx-- IRController");
 //	MCUCR |= _BV(ISC11);
 //	MCUCR |= _BV(ISC10);
 
-	GIMSK = 0xc0;
-	MCUCR = 0xe;
+#if defined (__AVR_ATmega8535__) || defined (__AVR_ATmega16__)
+	GICR = _BV(INT1)|_BV(INT0);
+	MCUCR = _BV(ISC01)|_BV(ISC11)|_BV(ISC10);
+#else
+	GIMSK = _BV(INT1)|_BV(INT0);
+	MCUCR = _BV(ISC01)|_BV(ISC11)|_BV(ISC10);
+#endif
 asm ("; --end-- IRController");
 	}
 
@@ -551,25 +561,38 @@ class UART
 public:
 	static void init(unsigned int baud)
 	{
+#if defined (__AVR_ATmega8535__) || defined (__AVR_ATmega16__)
 		/* Set baud rate */
-		//UBRRH = (unsigned char)(baud>>8);
-		//UBRRL = (unsigned char)baud;
+		UBRRH = (unsigned char)(baud>>8);
+		UBRRL = (unsigned char)baud;
+		/* Enable receiver and transmitter */
+		UCSRB = _BV(RXEN)|_BV(TXEN);
+		/* Set frame format: 8data, 2stop bit */
+		//UCSRC = _BV(URSEL)|_BV(USBS)|(3<<UCSZ0);
+#else
+		/* Set baud rate */
 		UBRR = (unsigned char)baud;
 		/* Enable receiver and transmitter */
-		//UCSRB = _BV(UDRIE)|_BV(TXEN);
 		//UCR = _BV(UDRIE)|_BV(TXEN);
 		//UCR = _BV(TXEN)|_BV(RXEN)|_BV(RXCIE);
 		UCR = _BV(TXEN)|_BV(RXEN);
-		/* Set frame format: 8data, 2stop bit */
-		//UCSRC = _BV(URSEL)|_BV(USBS)|(3<<UCSZ0);
+#endif
 	}
 	static bool send_ready()
 	{
+#if defined (__AVR_ATmega8535__) || defined (__AVR_ATmega16__)
+		return UCSRA & _BV(UDRE);
+#else
 		return USR & _BV(UDRE);
+#endif
 	}
 	static bool recv_ready()
 	{
+#if defined (__AVR_ATmega8535__) || defined (__AVR_ATmega16__)
+		return UCSRA & _BV(RXC);
+#else
 		return USR & _BV(RXC);
+#endif
 	}
 	static void send(uint8_t data)
 	{
@@ -1085,20 +1108,22 @@ public:
 			redIndicator.display();
 	}
 
-	void poll_terminal()
-	{
-		if (need_terminal_update) {
-			if (terminal.update(redIndicator.data(), greenIndicator.data(), mode, box_time, timer, terminal_status))
-				need_terminal_update = false;
-		}
-		terminal.poll();
-	}
+	void poll_terminal();
+//	{
+//		if (need_terminal_update) {
+//			if (terminal.update(redIndicator.data(), greenIndicator.data(), mode, box_time, timer, terminal_status))
+//				need_terminal_update = false;
+//		}
+//		terminal.poll();
+//	}
 
 	void terminal_update(uint8_t status = 'E', bool force = false)
 	{
 		if (!force && need_terminal_update)
 			return;
-		
+		if (need_terminal_update)
+			poll_terminal();
+
 		need_terminal_update = true;
 		terminal_status = status;
 	}
@@ -1556,6 +1581,15 @@ void System::logic ()
 
 	if (current != state)
 		terminal_update();
+}
+
+void System::poll_terminal()
+{
+	if (need_terminal_update) {
+		if (terminal.update(redIndicator.data(), greenIndicator.data(), mode, box_time, timer, terminal_status))
+			need_terminal_update = false;
+	}
+	terminal.poll();
 }
 
 template <typename Strobe, typename Enable>

@@ -33,7 +33,7 @@ template <> inline volatile uint8_t& port_ref<Status> () { return SPSR; }
 template <> inline volatile uint8_t& port_ref<Data>   () { return SPDR; }
 
 #define AVRLIB_SPI_ENABLED
-#if defined (__AVR_ATmega8535__) || defined (__AVR_AT90S8535__)
+#if defined (__AVR_ATmega8535__) || defined (__AVR_ATmega16__) || defined (__AVR_AT90S8535__)
 typedef Bit<IO::port_B,IO::bit_7,true>  SCK_bit;
 typedef Bit<IO::port_B,IO::bit_6,false> MISO_bit;
 typedef Bit<IO::port_B,IO::bit_5,true>  MOSI_bit;
@@ -47,7 +47,7 @@ typedef Bit<IO::port_B,IO::bit_4,true>  SS_bit;
 
 #if defined (AVRLIB_SPI_ENABLED)
 
-#if defined (__AVR_ATmega8535__)
+#if defined (__AVR_ATmega8535__) || defined (__AVR_ATmega16__)
 #  define SPI_DOUBLE_SPEED
 #elif defined (__AVR_AT90S8535__)
 #  undef SPI_DOUBLE_SPEED
