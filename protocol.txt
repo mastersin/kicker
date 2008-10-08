@@ -16,6 +16,17 @@
 // - Checksum1 (high part of byte)
 // - Checksum2 (low part of byte) CheckSum = to_hex(Checksum1) << 4 + to_hex(Checksum2)
 
+enum Command
+{
+	Start = 'B',
+	Reset = 'H',
+	Plus  = 'I',
+	Minus = 'D',
+	Mute  = 'S',
+	Mode  = 'M',
+	Time  = 'T'
+};
+
 
 Посылка:
 ________________

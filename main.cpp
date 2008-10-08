@@ -993,7 +993,7 @@ private:
 			UART::send(buffer[index++]);
 		} else {
 			state = Done;
-			UART::send(0);
+			UART::send('\n');
 		}
 	}
 	uint8_t normalize_digit (uint8_t byte) {
