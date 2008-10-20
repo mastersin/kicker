@@ -993,7 +993,7 @@ private:
 			UART::send(buffer[index++]);
 		} else {
 			state = Done;
-			UART::send('\n');
+			UART::send('\r');
 		}
 	}
 	uint8_t normalize_digit (uint8_t byte) {
@@ -1410,9 +1410,9 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 				indicator.kick(4);
 
 			state = Dead;
-			// 1/(1000/(8000000/256/8/2)) = 1.953125 = k -> 128ms * k = 250
-			// 250 0.064s on CK8, but 0.128 on CK16
-			checkTimer = CHECK_SENSOR_DEAD_TIME(128);
+			// 1/(1000/(8000000/256/8/2)) = 1.953125 = k -> 64ms * k = 125
+			// 125 0.032s on CK8, but 0.064 on CK16
+			checkTimer = CHECK_SENSOR_DEAD_TIME(64);
 
 			break;
 		case Dead:
