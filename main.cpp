@@ -29,6 +29,9 @@ using namespace AVRLIB;
 using IO::Bit;
 using IO::Port;
 
+extern "C" void __cxa_pure_virtual(void);
+void __cxa_pure_virtual(void) {};
+
 template <class Strobe, class Enable>
 class Indicator
 {
@@ -205,14 +208,10 @@ private:
 	uint8_t checkTimer;
 };
 
-template <class input>
-class Button
+class ButtonBase
 {
 public:
-	Button (bool pullout = true): state(Wait)
-	{
-		input::init(pullout);
-	}
+	ButtonBase (): state(Wait) {}
 
 	void poll ();
 	void check ()
@@ -237,7 +236,9 @@ public:
 		return false;
 	}
 
-private:
+protected:
+	virtual bool signal () = 0;
+
 	enum State
 	{
 		Wait,
@@ -249,6 +250,20 @@ private:
 	volatile State state;
 	volatile bool pressed;
 	volatile uint8_t checkTimer;
+};
+
+template <class input>
+class Button: public ButtonBase
+{
+public:
+	Button (bool pullout = true): ButtonBase()
+	{
+		input::init(pullout);
+	}
+protected:
+	bool signal () {
+		return input::get();
+	}
 };
 
 #define PRESCALE_COUNT(Hz) ((CLOCK/32)/Hz)
@@ -1423,13 +1438,12 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 	}	
 }
 
-template <class input>
-void Button<input>::poll ()
+void ButtonBase::poll ()
 {
 	switch (state)
 	{
 		case Wait:
-			if (input::get())
+			if (signal())
 			{
 				checkTimer = CHECK_BUTTON_TIME(10);
 				state = Check;
@@ -1437,7 +1451,7 @@ void Button<input>::poll ()
 			break;
 		case Check:
 			if (checkTimer > 0) {
-				if (!input::get())
+				if (!signal())
 					state = Wait;
 				break;
 			} else {
@@ -1445,10 +1459,11 @@ void Button<input>::poll ()
 				pressed = true;
 			}
 		case Press:
-			if (!input::get()) {		
+			if (!signal())
+			{
 				checkTimer = CHECK_BUTTON_TIME(10);
 				state = Dead;
-			}			
+			}
 			break;
 		case Dead:
 			if (checkTimer > 0)

@@ -123,6 +123,7 @@ CXXFLAGS += -Wa,-adhlns=$(<:.cpp=.lst)
 CXXFLAGS += $(patsubst %,-I%,$(EXTRAINCDIRS))
 CXXFLAGS += -DF_OSC=$(F_OSC)
 CXXFLAGS += -Wall
+CXXFLAGS += -fno-exceptions -fno-rtti
 
 
 
