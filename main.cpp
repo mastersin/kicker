@@ -556,6 +556,14 @@ private:
 	volatile uint8_t offset;
 };
 
+#if defined (__AVR_ATmega8535__) || defined (__AVR_ATmega16__)
+ISR(USART_RXC_vect);
+ISR(USART_TXC_vect);
+ISR(USART_UDRE_vect);
+#else
+# error Fixme: add UART vectors
+#endif
+
 class UART
 {
 public:
@@ -566,7 +574,7 @@ public:
 		UBRRH = (unsigned char)(baud>>8);
 		UBRRL = (unsigned char)baud;
 		/* Enable receiver and transmitter */
-		UCSRB = _BV(RXEN)|_BV(TXEN);
+		UCSRB = _BV(RXEN)|_BV(TXEN)|_BV(RXCIE)|_BV(TXCIE);
 		/* Set frame format: 8data, 2stop bit */
 		//UCSRC = _BV(URSEL)|_BV(USBS)|(3<<UCSZ0);
 #else
@@ -598,10 +606,34 @@ public:
 	{
 		UDR = data;
 	}
+	static void start_sending()
+	{
+#if defined (__AVR_ATmega8535__) || defined (__AVR_ATmega16__)
+		UCSRB |= _BV(UDRIE);
+#else
+# error Fixme: add initial for UDRIE
+#endif
+	}
+	static void stop_sending()
+	{
+#if defined (__AVR_ATmega8535__) || defined (__AVR_ATmega16__)
+		UCSRB &= ~_BV(UDRIE);
+#else
+# error Fixme: add stoping for UDRIE
+#endif
+	}
 	static uint8_t recv()
 	{
 		return UDR;
 	}
+
+#if defined (__AVR_ATmega8535__) || defined (__AVR_ATmega16__)
+	friend void USART_RXC_vect(void);
+	friend void USART_TXC_vect(void);
+	friend void USART_UDRE_vect(void);
+#else
+# error Fixme: add UART vectors
+#endif
 };
 
 // Protocol:
@@ -895,6 +927,7 @@ class Terminal
 	enum State
 	{
 		Wait,
+		Init,
 		Send,
 		Done,
 		Error
@@ -909,11 +942,11 @@ public:
 	
 	bool update (const uint8_t *redLine,
 		     const uint8_t *greenLine,
-		     uint8_t mode, uint16_t full, uint16_t time, uint8_t status)
+		     uint8_t mode, uint16_t full, uint16_t time, uint8_t status, bool force = false)
 	{
-		if (state == Send && UART::send_ready())
+		if ((state == Send || state == Init) && !force)
 			return false;
-		
+
 		register uint8_t tmp = buffer_size-length_size-checksum_size;
 		buffer[0] = normalize_hex(tmp>>4);
 		buffer[1] = normalize_hex(tmp);
@@ -935,11 +968,22 @@ public:
 		buffer[checksum_index+1] = normalize_hex(tmp>>4);
 		buffer[checksum_index+2] = normalize_hex(tmp);
 
+		start_by_interrupt();
+
+		return true;
+	}
+
+	void start() {
 		state = Send;
 		index = 0;
 		UART::send(':');
+	}
 
-		return true;
+	void start_by_interrupt(State = Init) {
+		UART::stop_sending();
+		index = 0;
+		state = Init;
+		UART::start_sending();
 	}
 
 	void poll() {
@@ -982,6 +1026,37 @@ public:
 	uint16_t getTime ()
 	{
 		return receiver.getData16();
+	}
+
+	void next_by_interrupt() {
+		switch (state) {
+		case Init:
+			UART::send(':');
+			state = Send;
+			break;
+		case Send:
+			if (index < buffer_size) {
+				UART::send(buffer[index++]);
+			} else {
+				state = Done;
+				UART::stop_sending();
+			}
+			break;
+		case Wait:
+			state = Error;
+		case Error:
+		case Done:
+			UART::stop_sending();
+		}
+	}
+	void last_by_interrupt() {
+		if (state == Done) {
+			state = Wait;
+			UART::send('\r');
+		}
+	}
+	void get_by_interrupt() {
+		receiver.poll();
 	}
 
 private:
@@ -1171,7 +1246,22 @@ public:
 		poll_display();
 
 	}
-	
+
+	void checkUARTReceiver()
+	{
+		terminal.get_by_interrupt();
+	}
+
+	void checkUARTTransmitComplete()
+	{
+		terminal.last_by_interrupt();
+	}
+
+	void checkUARTSending()
+	{
+		terminal.next_by_interrupt();
+	}
+
 	void checkSensors (bool new_style)
 	{
 		redSensor.check(!new_style);
@@ -1460,6 +1550,34 @@ void Button<input>::poll ()
 
 static System system;
 
+
+#if defined (__AVR_ATmega8535__) || defined (__AVR_ATmega16__)
+ISR(USART_RXC_vect)
+#else
+# error needs UART_RXC_vect definition
+#endif
+{
+	system.checkUARTReceiver();
+}
+
+#if defined (__AVR_ATmega8535__) || defined (__AVR_ATmega16__)
+ISR(USART_TXC_vect)
+#else
+# error needs UART_TXC_vect definition
+#endif
+{
+	system.checkUARTTransmitComplete();
+}
+
+#if defined (__AVR_ATmega8535__) || defined (__AVR_ATmega16__)
+ISR(USART_UDRE_vect)
+#else
+# error needs UART_UDRE_vect definition
+#endif
+{
+	system.checkUARTSending();
+}
+
 ISR(TIMER0_OVF_vect)
 {
 	static uint8_t counter = 0;
@@ -1589,7 +1707,7 @@ void System::poll_terminal()
 		if (terminal.update(redIndicator.data(), greenIndicator.data(), mode, box_time, timer, terminal_status))
 			need_terminal_update = false;
 	}
-	terminal.poll();
+	//terminal.poll();
 }
 
 template <typename Strobe, typename Enable>
