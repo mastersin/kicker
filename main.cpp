@@ -1625,10 +1625,12 @@ bool System::timeset ()
 {
 	if (minutePlusEvent()) {
 		redIndicator.inc100(5);
+		timer = redIndicator.time();
 		terminal_update('I');
 	}
 	if (minuteMinusEvent()) {
 		redIndicator.dec100(5);
+		timer = redIndicator.time();
 		terminal_update('D');
 	}
 	if (modeEvent()) {
