@@ -173,11 +173,15 @@ public:
 	void poll (IndicatorType &indicator);
 	void check (bool ck8)
 	{
-		static bool ck16 = false;
 		if(checkTimer != 0) {
-			if (state != Dead || ck8) {
+			if (ck8)
+				--checkTimer;
+		}
+		if(checkTimerLong != 0) {
+			static bool ck16 = false;
+			if (ck8) {
 				if (ck16)
-					--checkTimer;
+					--checkTimerLong;
 				ck16 = !ck16;
 			}
 		}
@@ -203,6 +207,7 @@ private:
 	State state;
 	sensor_type last_sensor;
 	uint8_t checkTimer;
+	uint8_t checkTimerLong;
 };
 
 template <class input>
@@ -1462,6 +1467,8 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 				state = Kick;
 				// 1/(1000000/(8000000/256) = 0.03125 = k -> 320us * k = 10
 				checkTimer = CHECK_SENSOR_TIME(320);
+				// 1/(1000000/(8000000/256) = 0.03125 = k -> 4992us * k = 156
+				checkTimerLong = CHECK_SENSOR_TIME(4992);
 			}
 
 			break;
@@ -1481,8 +1488,6 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 		case Kick:
 			if (checkTimer > 0) {
 				if (sensors::get() & last_sensor) {
-					// 1/(1000000/(8000000/256) = 0.03125 = k -> 4992us * k = 156
-					checkTimer = CHECK_SENSOR_TIME(4992);
 					state = CheckBack;
 				}
 				break;
