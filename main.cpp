@@ -1467,8 +1467,8 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 				state = Kick;
 				// 1/(1000000/(8000000/256) = 0.03125 = k -> 320us * k = 10
 				checkTimer = CHECK_SENSOR_TIME(320);
-				// 1/(1000000/(8000000/256) = 0.03125 = k -> 4992us * k = 156
-				checkTimerLong = CHECK_SENSOR_TIME(4992);
+				// 1/(1000000/(8000000/256) = 0.03125 = k -> 2496us * k = 78
+				checkTimerLong = CHECK_SENSOR_TIME(2496);
 			}
 
 			break;
