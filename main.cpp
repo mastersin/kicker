@@ -16,6 +16,7 @@ using namespace AVRLIB;
 #define CLOCK F_OSC    /* clock rate of microcontroller (in Hz) */
 #define SECOND_OCR ((uint16_t) (((unsigned long)(CLOCK) / 256L) / 10L))
 #define CHECK_SENSOR_TIME(us) ((uint8_t) (((us) * ((unsigned long)(CLOCK) / 256L)) / 1000000L))
+#define CHECK_SENSOR_BACK_TIME(ms) ((uint8_t) (((ms) * (((unsigned long)(CLOCK) / 256L) / 8L)) / 1000L))
 #define CHECK_SENSOR_DEAD_TIME(ms) ((uint8_t) (((ms) * (((unsigned long)(CLOCK) / 256L) / 8L)) / 1000L))
 #define CHECK_BUTTON_TIME(us) ((uint8_t) ((us) *((((unsigned long)(CLOCK) / 256L) / 8L) / 1000L)))
 #define CHECK_LONG_TIME(us) ((uint8_t) ((us) *((((unsigned long)(CLOCK) / 256L) / 8L) / 10L)))
@@ -174,16 +175,15 @@ public:
 	void check (bool ck8)
 	{
 		if(checkTimer != 0) {
-			if (ck8)
-				--checkTimer;
+			--checkTimer;
 		}
-		if(checkTimerLong != 0) {
-			static bool ck16 = false;
-			if (ck8) {
-				if (ck16)
-					--checkTimerLong;
-				ck16 = !ck16;
-			}
+		if(checkTimerBack != 0) {
+			if (ck8)
+				--checkTimerBack;
+		}
+		if(checkTimerDead != 0) {
+			if (ck8)
+				--checkTimerDead;
 		}
 	}
 	void reset ()
@@ -198,6 +198,7 @@ private:
 	{
 		Wait,
 		Check,
+		CheckWait,
 		CheckBack,
 		Kick,
 		Error,
@@ -207,7 +208,8 @@ private:
 	State state;
 	sensor_type last_sensor;
 	uint8_t checkTimer;
-	uint8_t checkTimerLong;
+	uint8_t checkTimerBack;
+	uint8_t checkTimerDead;
 };
 
 template <class input>
@@ -1453,45 +1455,76 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 			last_sensor = checkSensors();
 			if (last_sensor)
 			{
-				// 1/(1000000/(8000000/256) = 0.03125 = k -> 64us * k = 2
-				checkTimer = CHECK_SENSOR_TIME(64);
 				state = Check;
+				// 1/(1000000/(8000000/256)) = 0.03125 = k -> 64us * k = 2
+				checkTimer = CHECK_SENSOR_TIME(64);
+				// 1/(1000/(8000000/256/8)) = 3.90625 = k -> 1ms (0.768ms) * k = 3
+				checkTimerBack = CHECK_SENSOR_BACK_TIME(1);
+				// 1/(1000/(8000000/256/8)) = 3.90625 = k -> 32ms * k = 125
+				checkTimerDead = CHECK_SENSOR_DEAD_TIME(32);
 			}
 
 			break;
 		case Check:
-			if (checkTimer > 0) {
-				if (!(sensors::get() & last_sensor))
-					state = Wait;
+			if (checkTimerBack > 0) {
+				if (!(sensors::get() & last_sensor)) {
+					if (checkTimer > 0) {
+						state = Wait;
+					} else {
+						state = CheckWait;
+						// 1/(1000000/(8000000/256)) = 0.03125 = k -> 256us * k = 8
+						checkTimer = CHECK_SENSOR_TIME(256);
+					}
+				}
 			} else {
-				state = Kick;
-				// 1/(1000000/(8000000/256) = 0.03125 = k -> 320us * k = 10
-				checkTimer = CHECK_SENSOR_TIME(320);
-				// 1/(1000000/(8000000/256) = 0.03125 = k -> 2496us * k = 78
-				checkTimerLong = CHECK_SENSOR_TIME(2496);
+				state = CheckBack;
+				// 1/(1000/(8000000/256/8)) = 3.90625 = k -> 5ms (4.86ms) * k = 19
+				checkTimerBack = CHECK_SENSOR_BACK_TIME(5);
 			}
+
+			break;
+		case CheckWait:
+			if (checkTimerBack > 0)
+				state = Wait;
+
+			if (checkTimer > 0) {
+				if (sensors::get() & last_sensor) {
+					state = Check;
+					// 1/(1000000/(8000000/256)) = 0.03125 = k -> 64us * k = 2
+					checkTimer = CHECK_SENSOR_TIME(64);
+				}
+			} else
+				state = Wait;
+
+			break;
+		case Error:
+			if (!(sensors::get() & last_sensor))
+				state = Wait;
+			state = Kick;
+			checkTimer = CHECK_SENSOR_TIME(320);
 
 			break;
 		case CheckBack:
-			if (checkTimer > 0) {
+			if (checkTimerDead > 0) {
 				if (!(sensors::get() & last_sensor)) {
+					if (checkTimerBack > 0) {
+						// Normal Kick
+						state = Kick;
+					} else {
+						// Long Kick
+						state = Kick;
+					}
+				}
+			} else {
+				if (sensors::get() & last_sensor)
+					state = Error;
+				else
 					state = Kick;
-					checkTimer = CHECK_SENSOR_TIME(320);
-				}
-			} else
-				state = Error;
-
-			break;
-		case Error: // Current logic dose not sense long signal from sensor
-			state = Kick;
-			checkTimer = CHECK_SENSOR_TIME(320);
-		case Kick:
-			if (checkTimer > 0) {
-				if (sensors::get() & last_sensor) {
-					state = CheckBack;
-				}
-				break;
 			}
+
+			if (state != Kick)
+				break;
+		case Kick:
 
 			if (last_sensor & sensor1)
 				indicator.kick(0);
@@ -1505,13 +1538,10 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 				indicator.kick(4);
 
 			state = Dead;
-			// 1/(1000/(8000000/256/8/2)) = 1.953125 = k -> 64ms * k = 125
-			// 125 0.032s on CK8, but 0.064 on CK16
-			checkTimer = CHECK_SENSOR_DEAD_TIME(64);
 
 			break;
 		case Dead:
-			if (checkTimer > 0)
+			if (checkTimerDead > 0)
 				break;
 		default:
 			state = Wait;

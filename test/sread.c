@@ -6,7 +6,8 @@
        #include <strings.h>
 
        #define BAUDRATE B38400
-       #define MODEMDEVICE "/dev/ttyUSB0"
+       #define MODEMDEVICE "UART"
+//       #define MODEMDEVICE "/dev/ttyUSB0"
 //       #define MODEMDEVICE "/dev/ttyS0"
        #define _POSIX_SOURCE 1 /* POSIX compliant source */
        #define FALSE 0
