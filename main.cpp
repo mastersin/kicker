@@ -1500,27 +1500,14 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 		case Error:
 			if (!(sensors::get() & last_sensor))
 				state = Wait;
-			state = Kick;
-			checkTimer = CHECK_SENSOR_TIME(320);
 
 			break;
 		case CheckBack:
 			if (checkTimerDead > 0) {
-				if (!(sensors::get() & last_sensor)) {
-					if (checkTimerBack > 0) {
-						// Normal Kick
-						state = Kick;
-					} else {
-						// Long Kick
-						state = Kick;
-					}
-				}
-			} else {
-				if (sensors::get() & last_sensor)
-					state = Error;
-				else
+				if (!(sensors::get() & last_sensor))
 					state = Kick;
-			}
+			} else
+				state = Error;
 
 			if (state != Kick)
 				break;
