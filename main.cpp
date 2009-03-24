@@ -27,11 +27,13 @@ using namespace AVRLIB;
 #define IRC_LONG ((uint8_t) ((((unsigned long)(CLOCK) / 256L) / 562L)))
 #define IRC_MAX ((uint8_t) (((((((unsigned long)(CLOCK) / 256L) / 8L) / 562L) + 1))))
 
+extern "C" void __cxa_pure_virtual(void);
+void __cxa_pure_virtual(void) {};
+
 using IO::Bit;
 using IO::Port;
 
-template <class Strobe, class Enable>
-class Indicator
+class IndicatorBase
 {
 	static const uint8_t Leds[];
 	volatile int8_t Line[3*6];
@@ -44,12 +46,12 @@ class Indicator
 	uint8_t send_number;
 	uint8_t send_digit;
 	bool dot;
+protected:
+       virtual void strobe () = 0;
+       virtual void enable (bool) = 0;
 public:
-	Indicator (): flag(true), overflow(false), spi_in_progress(false), dot(true)
-	{
-		Strobe::init();
-		Enable::init();
-	}
+	IndicatorBase (): flag(true), overflow(false), spi_in_progress(false), dot(true) {}
+
 	void display ();
 	void display_next ();
 	void display_stop ();
@@ -70,6 +72,10 @@ public:
 	bool display_in_progress ()
 	{
 		return spi_in_progress;
+	}
+	void update ()
+	{
+		flag = true;
 	}
 	int16_t get (uint8_t index, uint8_t high = 100);
 	void put (uint8_t index, int16_t digit);
@@ -97,6 +103,32 @@ public:
 	const uint8_t* data () { return (uint8_t*)Line; }
 };
 
+template <class Strobe, class Enable>
+class Indicator: public IndicatorBase
+{
+public:
+	Indicator(): IndicatorBase()
+	{
+		Strobe::init();
+		Enable::init();
+//		Enable::set();
+	}
+
+protected:
+	virtual void strobe () {
+		static volatile bool fake;
+
+		Strobe::set(true);
+		fake = false;
+		fake = true;
+		fake = false;
+		Strobe::set(false);
+	}
+	virtual void enable (bool e) {
+//		Enable::set(e);
+	}
+};
+
 class Indicators
 {
 public:
@@ -106,8 +138,7 @@ public:
 	}
 };
 
-template <class Strobe, class Enable>
-const uint8_t Indicator<Strobe, Enable>::Leds[] =
+const uint8_t IndicatorBase::Leds[] =
 {
 	0x5f,
 	0x42,
@@ -129,49 +160,16 @@ const uint8_t Indicator<Strobe, Enable>::Leds[] =
 	0x20
 };
 
-template <Port port,
-          IO::Bit  bit1,
-          IO::Bit  bit2,
-          IO::Bit  bit3,
-          IO::Bit  bit4,
-          IO::Bit  bit5>
-class Sensor
+class SensorBase
 {
 	typedef uint8_t sensor_type;
-	static const sensor_type sensor1 = MAKEBIT(bit1);
-	static const sensor_type sensor2 = MAKEBIT(bit2);
-	static const sensor_type sensor3 = MAKEBIT(bit3);
-	static const sensor_type sensor4 = MAKEBIT(bit4);
-	static const sensor_type sensor5 = MAKEBIT(bit5);
-	static const sensor_type sensors_mask = sensor1|sensor2|sensor3|sensor4|sensor5;
 protected:
-	sensor_type checkSensors ()
-	{
-		sensor_type mask = sensors::get();
-
-		if ((mask & sensor1)) 
-			return sensor1;
-		if ((mask & sensor2)) 
-			return sensor2;
-		if ((mask & sensor3)) 
-			return sensor3;
-		if ((mask & sensor4)) 
-			return sensor4;
-		if ((mask & sensor5)) 
-			return sensor5;
-
-		return 0;
-	}
-
-	typedef Inputs<port, sensors_mask, false> sensors;
+	virtual sensor_type get (sensor_type last = 0) = 0;
+	virtual void kick (IndicatorBase &i, sensor_type s) = 0;
 public:
-	Sensor (): state(Wait)
-	{
-		sensors::init(true);
-	}
+	SensorBase (): state(Wait) {}
 
-	template <class IndicatorType>
-	void poll (IndicatorType &indicator);
+	void poll (IndicatorBase &indicator);
 	void check (bool ck8)
 	{
 		if(checkTimer != 0) {
@@ -212,14 +210,68 @@ private:
 	uint8_t checkTimerDead;
 };
 
-template <class input>
-class Button
+template <Port port,
+          IO::Bit  bit1,
+          IO::Bit  bit2,
+          IO::Bit  bit3,
+          IO::Bit  bit4,
+          IO::Bit  bit5>
+class Sensor: public SensorBase
+{
+	static const sensor_type sensor1 = MAKEBIT(bit1);
+	static const sensor_type sensor2 = MAKEBIT(bit2);
+	static const sensor_type sensor3 = MAKEBIT(bit3);
+	static const sensor_type sensor4 = MAKEBIT(bit4);
+	static const sensor_type sensor5 = MAKEBIT(bit5);
+	static const sensor_type sensors_mask = sensor1|sensor2|sensor3|sensor4|sensor5;
+
+	typedef Inputs<port, sensors_mask, false> sensors;
+public:
+	Sensor(): SensorBase()
+	{
+		sensors::init(true);
+	}
+
+protected:
+	virtual sensor_type get (sensor_type last)
+	{
+		sensor_type mask = sensors::get();
+
+		if (mask & last)
+			return last;
+
+		if ((mask & sensor1))
+			return sensor1;
+		if ((mask & sensor2))
+			return sensor2;
+		if ((mask & sensor3))
+			return sensor3;
+		if ((mask & sensor4))
+			return sensor4;
+		if ((mask & sensor5))
+			return sensor5;
+
+		return 0;
+	}
+	virtual void kick (IndicatorBase &i, sensor_type s)
+	{
+		if (s & sensor1)
+			i.kick(0);
+		if (s & sensor2)
+			i.kick(1);
+		if (s & sensor3)
+			i.kick(2);
+		if (s & sensor4)
+			i.kick(3);
+		if (s & sensor5)
+			i.kick(4);
+	}
+};
+
+class ButtonBase
 {
 public:
-	Button (bool pullout = true): state(Wait)
-	{
-		input::init(pullout);
-	}
+	ButtonBase (): state(Wait) {}
 
 	void poll ();
 	void check ()
@@ -244,6 +296,9 @@ public:
 		return false;
 	}
 
+protected:
+       virtual bool signal () = 0;
+
 private:
 	enum State
 	{
@@ -251,11 +306,26 @@ private:
 		Check,
 		Press,
 		Dead
-	};
+};
 
 	volatile State state;
 	volatile bool pressed;
 	volatile uint8_t checkTimer;
+};
+
+template <class input>
+class Button: public ButtonBase
+{
+public:
+	Button (bool pullout = true): ButtonBase()
+	{
+		input::init(pullout);
+	}
+
+protected:
+	virtual bool signal () {
+		return input::get();
+	}
 };
 
 #define PRESCALE_COUNT(Hz) ((CLOCK/32)/Hz)
@@ -1286,8 +1356,14 @@ public:
 
 	void checkIndicators ()
 	{
-		greenIndicator.display_next();	
-		redIndicator.display_next();	
+		greenIndicator.display_next();
+		redIndicator.display_next();
+	}
+
+	void updateIndicators ()
+	{
+		greenIndicator.update();
+		redIndicator.update();
 	}
 
 	void signalIRController ()
@@ -1440,19 +1516,12 @@ private:
 	uint8_t terminal_status;
 };
 
-template <Port port,
-          IO::Bit  bit1,
-          IO::Bit  bit2,
-          IO::Bit  bit3,
-          IO::Bit  bit4,
-          IO::Bit  bit5>
-template <class IndicatorType>
-void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
+void SensorBase::poll (IndicatorBase &indicator)
 {
 	switch (state)
 	{
 		case Wait:
-			last_sensor = checkSensors();
+			last_sensor = get();
 			if (last_sensor)
 			{
 				state = Check;
@@ -1467,7 +1536,7 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 			break;
 		case Check:
 			if (checkTimerBack > 0) {
-				if (!(sensors::get() & last_sensor)) {
+				if (!get(last_sensor)) {
 					if (checkTimer > 0) {
 						state = Wait;
 					} else {
@@ -1488,7 +1557,7 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 				state = Wait;
 
 			if (checkTimer > 0) {
-				if (sensors::get() & last_sensor) {
+				if (get(last_sensor)) {
 					state = Check;
 					// 1/(1000000/(8000000/256)) = 0.03125 = k -> 64us * k = 2
 					checkTimer = CHECK_SENSOR_TIME(64);
@@ -1498,13 +1567,13 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 
 			break;
 		case Error:
-			if (!(sensors::get() & last_sensor))
+			if (!get(last_sensor))
 				state = Wait;
 
 			break;
 		case CheckBack:
 			if (checkTimerDead > 0) {
-				if (!(sensors::get() & last_sensor))
+				if (!get(last_sensor))
 					state = Kick;
 			} else
 				state = Error;
@@ -1513,16 +1582,7 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 				break;
 		case Kick:
 
-			if (last_sensor & sensor1)
-				indicator.kick(0);
-			if (last_sensor & sensor2)
-				indicator.kick(1);
-			if (last_sensor & sensor3)
-				indicator.kick(2);
-			if (last_sensor & sensor4)
-				indicator.kick(3);
-			if (last_sensor & sensor5)
-				indicator.kick(4);
+			kick(indicator, last_sensor);
 
 			state = Dead;
 
@@ -1535,13 +1595,12 @@ void Sensor<port,bit1,bit2,bit3,bit4,bit5>::poll (IndicatorType &indicator)
 	}	
 }
 
-template <class input>
-void Button<input>::poll ()
+void ButtonBase::poll ()
 {
 	switch (state)
 	{
 		case Wait:
-			if (input::get())
+			if (signal())
 			{
 				checkTimer = CHECK_BUTTON_TIME(10);
 				state = Check;
@@ -1549,7 +1608,7 @@ void Button<input>::poll ()
 			break;
 		case Check:
 			if (checkTimer > 0) {
-				if (!input::get())
+				if (!signal())
 					state = Wait;
 				break;
 			} else {
@@ -1557,10 +1616,10 @@ void Button<input>::poll ()
 				pressed = true;
 			}
 		case Press:
-			if (!input::get()) {		
+			if (!signal()) {
 				checkTimer = CHECK_BUTTON_TIME(10);
 				state = Dead;
-			}			
+			}
 			break;
 		case Dead:
 			if (checkTimer > 0)
@@ -1612,6 +1671,8 @@ ISR(TIMER1_COMPA_vect)
 	if (s == 0)
 		system.secondTimer();
 	system.dynamicTimer();
+	if (s & 0x1)
+		system.updateIndicators();
 	s = s < 9 ? s + 1 : 0;
 }
 
@@ -1734,14 +1795,13 @@ void System::poll_terminal()
 	//terminal.poll();
 }
 
-template <typename Strobe, typename Enable>
-void Indicator<Strobe, Enable>::display() 
+void IndicatorBase::display() 
 {
 	if (!flag) return;
 	if (spi_in_progress) return;
 
 	Spi::reinit (Spi::mode_master);
-	Enable::set(true);
+	enable(true);
 	
 	spi_in_progress = true;
 	spi_done = false;
@@ -1753,8 +1813,7 @@ void Indicator<Strobe, Enable>::display()
 	display_next();
 }
 
-template <typename Strobe, typename Enable>
-void Indicator<Strobe, Enable>::display_next()
+void IndicatorBase::display_next()
 {
 	if (!spi_in_progress) return;
 
@@ -1771,7 +1830,7 @@ void Indicator<Strobe, Enable>::display_next()
 	else
 		zero_digit = false;
 
-	if ((send_number == 5 ) && (send_digit_tmp == 0 && digit < 10) && dot)
+	if ((send_number == 5) && (send_digit_tmp == 0 && digit < 10) && dot)
 		Spi::send(0xff - (Leds[digit] + 0x80));
 	else
 		Spi::send(0xff - Leds[digit]);
@@ -1786,25 +1845,19 @@ void Indicator<Strobe, Enable>::display_next()
 	}
 }
 
-template <typename Strobe, typename Enable>
-void Indicator<Strobe, Enable>::display_stop()
+void IndicatorBase::display_stop()
 {
 	if (!spi_in_progress) return;
 
 	spi_in_progress = false;
 	Spi::stop();
 
-	Strobe::set(true);
 	flag = 0;
-	flag = 1;
-	flag = 0;
-	Strobe::set(false);
-
-	Enable::set(false);
+	strobe();
+	enable(false);
 }
 
-template <typename Strobe, typename Enable>
-void Indicator<Strobe, Enable>::inc (uint8_t index, int8_t middle)
+void IndicatorBase::inc (uint8_t index, int8_t middle)
 {
 	if (++Line[index * 3 + 2] > 9) {
 		Line[index * 3 + 2] = 0;
@@ -1818,8 +1871,7 @@ void Indicator<Strobe, Enable>::inc (uint8_t index, int8_t middle)
 	flag = 1;
 }
 
-template <typename Strobe, typename Enable>
-void Indicator<Strobe, Enable>::inc10 (uint8_t index, int8_t middle)
+void IndicatorBase::inc10 (uint8_t index, int8_t middle)
 {
 	if (++Line[index * 3 + 1] > middle) {
 		Line[index * 3 + 1] = 0;
@@ -1830,8 +1882,7 @@ void Indicator<Strobe, Enable>::inc10 (uint8_t index, int8_t middle)
 	flag = 1;
 }
 
-template <typename Strobe, typename Enable>
-void Indicator<Strobe, Enable>::inc100 (uint8_t index)
+void IndicatorBase::inc100 (uint8_t index)
 {
 	if (++Line[index * 3] > 9)
 		Line[index * 3] = 0;
@@ -1839,8 +1890,7 @@ void Indicator<Strobe, Enable>::inc100 (uint8_t index)
 	flag = 1;
 }
 
-template <typename Strobe, typename Enable>
-void Indicator<Strobe, Enable>::dec (uint8_t index, int8_t middle)
+void IndicatorBase::dec (uint8_t index, int8_t middle)
 {
 //asm ("; --start-- Indicator<Strobe, Enable>::dec");
 	if (--Line[index * 3 + 2] < 0) {
@@ -1858,8 +1908,7 @@ void Indicator<Strobe, Enable>::dec (uint8_t index, int8_t middle)
 //asm ("; --end-- Indicator<Strobe, Enable>::dec");
 }
 
-template <typename Strobe, typename Enable>
-void Indicator<Strobe, Enable>::dec100 (uint8_t index, int8_t middle)
+void IndicatorBase::dec100 (uint8_t index, int8_t middle)
 {
 	if (--Line[index * 3] < 0)
 		Line[index * 3] = 9;
@@ -1867,20 +1916,17 @@ void Indicator<Strobe, Enable>::dec100 (uint8_t index, int8_t middle)
 	flag = 1;
 }
 
-template <typename Strobe, typename Enable>
-int16_t Indicator<Strobe, Enable>::get (uint8_t index, uint8_t high)
+int16_t IndicatorBase::get (uint8_t index, uint8_t high)
 {
 	return high * Line[index * 3] + 10 * Line[index * 3 + 1] + Line[index * 3 + 2];
 }
 
-template <typename Strobe, typename Enable>
-int16_t Indicator<Strobe, Enable>::total ()
+int16_t IndicatorBase::total ()
 {
 	return get(0) + get(1) + get(2) + get(3) + get(4);
 }
 
-template <typename Strobe, typename Enable>
-void Indicator<Strobe, Enable>::put (uint8_t index, int16_t digit)
+void IndicatorBase::put (uint8_t index, int16_t digit)
 {
 //asm ("; --start-- Indicator<Strobe, Enable>::put");
 	int8_t sign = digit % 10;
@@ -1900,8 +1946,7 @@ void Indicator<Strobe, Enable>::put (uint8_t index, int16_t digit)
 //asm ("; --end-- Indicator<Strobe, Enable>::put");
 }
 
-template <typename Strobe, typename Enable>
-void Indicator<Strobe, Enable>::zero (uint8_t index)
+void IndicatorBase::zero (uint8_t index)
 {
 	Line[index * 3] = 0;
 	Line[index * 3 + 1] = 0;
@@ -1910,8 +1955,7 @@ void Indicator<Strobe, Enable>::zero (uint8_t index)
 	flag = true;
 }
 
-template <typename Strobe, typename Enable>
-void Indicator<Strobe, Enable>::minus (uint8_t index, uint8_t middle)
+void IndicatorBase::minus (uint8_t index, uint8_t middle)
 {
 	Line[index * 3] = 0x11;
 	Line[index * 3 + 1] = middle;
@@ -1920,8 +1964,7 @@ void Indicator<Strobe, Enable>::minus (uint8_t index, uint8_t middle)
 	flag = true;
 }
 
-template <typename Strobe, typename Enable>
-void Indicator<Strobe, Enable>::reset ()
+void IndicatorBase::reset ()
 {
 	for (int i = 0; i < 6*3; i++)
 		Line[i] = 0;
