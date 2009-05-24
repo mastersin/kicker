@@ -166,10 +166,13 @@ class SensorBase
 protected:
 	virtual sensor_type get (sensor_type last = 0) = 0;
 	virtual void kick (IndicatorBase &i, sensor_type s) = 0;
+
+	virtual void setDebugSignal (bool s) = 0;
+	virtual void setDebugDeadTime (bool s) = 0;
 public:
 	SensorBase (): state(Wait) {}
 
-	void poll (IndicatorBase &indicator);
+	bool poll (IndicatorBase &indicator);
 	void check (bool ck8)
 	{
 		if(checkTimer != 0) {
@@ -215,7 +218,9 @@ template <Port port,
           IO::Bit  bit2,
           IO::Bit  bit3,
           IO::Bit  bit4,
-          IO::Bit  bit5>
+          IO::Bit  bit5,
+          class DebugSignal,
+          class DebugDeadTime>
 class Sensor: public SensorBase
 {
 	static const sensor_type sensor1 = MAKEBIT(bit1);
@@ -230,6 +235,8 @@ public:
 	Sensor(): SensorBase()
 	{
 		sensors::init(true);
+		DebugSignal::init();
+		DebugDeadTime::init();
 	}
 
 protected:
@@ -265,6 +272,14 @@ protected:
 			i.kick(3);
 		if (s & sensor5)
 			i.kick(4);
+	}
+	virtual void setDebugSignal (bool s)
+	{
+		DebugSignal::set(s);
+	}
+	virtual void setDebugDeadTime (bool s)
+	{
+		DebugDeadTime::set(s);
 	}
 };
 
@@ -713,6 +728,51 @@ public:
 #endif
 };
 
+#define BAUD 38400
+#define MYUBRR (F_OSC/16/BAUD-1)
+
+class Terminal
+{
+	static const uint8_t indicator_size = 3*5;
+	static const uint8_t length_size    = 3;
+	static const uint8_t mode_size      = 1;
+	static const uint8_t time_size      = 3;
+	static const uint8_t full_size      = 3;
+	static const uint8_t status_size    = 1;
+	static const uint8_t checksum_size  = 3;
+	static const uint8_t buffer_size    = length_size+indicator_size*2+mode_size+full_size+time_size+status_size+checksum_size;
+	static const uint8_t red_index      = length_size;
+	static const uint8_t green_index    = length_size+indicator_size;
+	static const uint8_t mode_index     = length_size+indicator_size*2;
+	static const uint8_t time_index     = length_size+indicator_size*2+mode_size;
+	static const uint8_t full_index     = length_size+indicator_size*2+mode_size+time_size;
+	static const uint8_t status_index   = length_size+indicator_size*2+mode_size+time_size+full_size;
+	static const uint8_t checksum_index = length_size+indicator_size*2+mode_size+time_size+full_size+status_size;
+
+	enum State
+	{
+		Wait,
+		Init,
+		Send,
+		Done,
+		Error
+	};
+
+public:
+	enum Command
+	{
+		Start  = 'B',
+		Pause  = 'P',
+		Reset  = 'H',
+		Result = 'R',
+		Kick   = 'K',
+		Plus   = 'I',
+		Minus  = 'D',
+		Mute   = 'S',
+		Mode   = 'M',
+		Time   = 'T'
+	};
+
 // Protocol:
 // Delimeter - ':'
 // Separator - '.'
@@ -731,7 +791,6 @@ public:
 // - Checksum1 (high part of byte)
 // - Checksum2 (low part of byte) CheckSum = to_hex(Checksum1) << 4 + to_hex(Checksum2)
 
-class Terminal;
 class TerminalReceiver
 {
 	enum State
@@ -754,18 +813,8 @@ class TerminalReceiver
 	
 	static const uint8_t packet_size = 5;
 
-	enum Command
-	{
-		Start = 'B',
-		Reset = 'H',
-		Plus  = 'I',
-		Minus = 'D',
-		Mute  = 'S',
-		Mode  = 'M',
-		Time  = 'T'
-	};
-
 public:
+
 	TerminalReceiver(): state(Wait) {}
 
 	void reset () 
@@ -789,7 +838,7 @@ public:
 		return false;
 	}
 
-	bool ready (Command cmd)
+	bool ready (Terminal::Command cmd)
 	{
 		if (ready(false) && cmd == command) {
 			reset();
@@ -800,31 +849,31 @@ public:
 
 	bool readyStart ()
 	{
-		return ready (Start);
+		return ready (Terminal::Start);
 	}
 	bool readyReset ()
 	{
-		return ready (Reset);
+		return ready (Terminal::Reset);
 	}
 	bool readyMinutePlus ()
 	{
-		return ready (Plus);
+		return ready (Terminal::Plus);
 	}
 	bool readyMinuteMinus ()
 	{
-		return ready (Minus);
+		return ready (Terminal::Minus);
 	}
 	bool readyMute ()
 	{
-		return ready (Mute);
+		return ready (Terminal::Mute);
 	}
 	bool readyMode ()
 	{
-		return ready (Mode);
+		return ready (Terminal::Mode);
 	}
 	bool readyTime ()
 	{
-		return ready (Time);
+		return ready (Terminal::Time);
 	}
 
 	uint8_t getData(uint8_t index)
@@ -980,38 +1029,8 @@ private:
 	friend class Terminal;
 };
 
-#define BAUD 38400
-#define MYUBRR (F_OSC/16/BAUD-1)
-
-class Terminal
-{
-	static const uint8_t indicator_size = 3*5;
-	static const uint8_t length_size    = 3;
-	static const uint8_t mode_size      = 1;
-	static const uint8_t time_size      = 3;
-	static const uint8_t full_size      = 3;
-	static const uint8_t status_size    = 1;
-	static const uint8_t checksum_size  = 3;
-	static const uint8_t buffer_size    = length_size+indicator_size*2+mode_size+full_size+time_size+status_size+checksum_size;
-	static const uint8_t red_index      = length_size;
-	static const uint8_t green_index    = length_size+indicator_size;
-	static const uint8_t mode_index     = length_size+indicator_size*2;
-	static const uint8_t time_index     = length_size+indicator_size*2+mode_size;
-	static const uint8_t full_index     = length_size+indicator_size*2+mode_size+time_size;
-	static const uint8_t status_index   = length_size+indicator_size*2+mode_size+time_size+full_size;
-	static const uint8_t checksum_index = length_size+indicator_size*2+mode_size+time_size+full_size+status_size;
-
-	enum State
-	{
-		Wait,
-		Init,
-		Send,
-		Done,
-		Error
-	};
-
 	TerminalReceiver receiver;
-	
+
 public:
 	Terminal(): state(Wait) {
 		UART::init (MYUBRR);
@@ -1194,6 +1213,12 @@ class System
 	typedef Output<IO::port_B, IO::bit_2, true> GreenStrobe;
 	typedef Output<IO::port_B, IO::bit_3, true> IndicatorEnable;
 
+	typedef Output<IO::port_C, IO::bit_0, true> RedDebugSignal;
+	typedef Output<IO::port_C, IO::bit_1, true> RedDebugDeadTime;
+
+	typedef Output<IO::port_B, IO::bit_7, true> GreenDebugSignal;
+	typedef Output<IO::port_B, IO::bit_6, true> GreenDebugDeadTime;
+
 	typedef Indicator<RedStrobe, IndicatorEnable> RedIndicator;
 	typedef Indicator<GreenStrobe, IndicatorEnable> GreenIndicator;
 
@@ -1207,13 +1232,17 @@ class System
 			IO::bit_6,
 			IO::bit_7,
 			IO::bit_5,
-			IO::bit_3> RedSensor;
+			IO::bit_3,
+			RedDebugSignal,
+			RedDebugDeadTime> RedSensor;
 	typedef Sensor<	IO::port_A,
 			IO::bit_3,
 			IO::bit_1,
 			IO::bit_0,
 			IO::bit_2,
-			IO::bit_4> GreenSensor;
+			IO::bit_4,
+			GreenDebugSignal,
+			GreenDebugDeadTime> GreenSensor;
 
 	RedIndicator redIndicator;
 	GreenIndicator greenIndicator;
@@ -1239,8 +1268,10 @@ public:
 	void poll_sensors()
 	{
 		if (state == Box) {
-			greenSensor.poll(greenIndicator);
-			redSensor.poll(redIndicator);
+			if (greenSensor.poll(greenIndicator))
+				terminal_update(Terminal::Kick);
+			if (redSensor.poll(redIndicator))
+				terminal_update(Terminal::Kick);
 		} else {
 			greenSensor.reset();
 			redSensor.reset();
@@ -1393,7 +1424,7 @@ public:
 	void secondTimer ()
 	{
 		if (state == Box) {
-			terminal_update('T');
+			terminal_update(Terminal::Time);
 			--timer;
 			redIndicator.inc(5);
 			greenIndicator.dec(5);
@@ -1516,8 +1547,10 @@ private:
 	uint8_t terminal_status;
 };
 
-void SensorBase::poll (IndicatorBase &indicator)
+bool SensorBase::poll (IndicatorBase &indicator)
 {
+	bool kicked = false;
+
 	switch (state)
 	{
 		case Wait:
@@ -1583,6 +1616,7 @@ void SensorBase::poll (IndicatorBase &indicator)
 		case Kick:
 
 			kick(indicator, last_sensor);
+			kicked = true;
 
 			state = Dead;
 
@@ -1593,6 +1627,17 @@ void SensorBase::poll (IndicatorBase &indicator)
 		default:
 			state = Wait;
 	}	
+
+//	switch (state)
+//	{
+//		default:
+//			setDebugSignal(false);
+//		case Wait:
+//			setDebugDeadTime(false);
+//			break;
+//	}	
+
+	return kicked;
 }
 
 void ButtonBase::poll ()
@@ -1709,17 +1754,17 @@ bool System::timeset ()
 	if (minutePlusEvent()) {
 		redIndicator.inc100(5);
 		timer = redIndicator.time();
-		terminal_update('I');
+		terminal_update(Terminal::Plus);
 	}
 	if (minuteMinusEvent()) {
 		redIndicator.dec100(5);
 		timer = redIndicator.time();
-		terminal_update('D');
+		terminal_update(Terminal::Minus);
 	}
 	if (modeEvent()) {
 		mode = mode < LastMode ? mode + 1 : 0;
 		greenIndicator.mode (mode);
-		terminal_update('M');
+		terminal_update(Terminal::Mode);
 	}
 	if (startEvent()) {
 		timer = redIndicator.time();
@@ -1741,7 +1786,7 @@ void System::logic ()
 
 	if (resetEvent()) {
 		reset();
-		terminal_update('H', true);
+		terminal_update(Terminal::Reset, true);
 	}
 	
 	switch (state)
@@ -1749,7 +1794,7 @@ void System::logic ()
 		case Wait:
 			if (timeset()) {
 				state = Box;
-				terminal_update('B', true);
+				terminal_update(Terminal::Start, true);
 				Dynamic::start(6);
 				resetSensors();
 			}
@@ -1759,19 +1804,19 @@ void System::logic ()
 				state = Result;
 			} else if (startEvent()) {
 				state = Pause;
-				terminal_update('P', true);
+				terminal_update(Terminal::Pause, true);
 			}
 			break;
 		case Pause:
 			if (startEvent()) {
 				state = Box;
-				terminal_update('B', true);
+				terminal_update(Terminal::Start, true);
 			}
 			break;
 		case Result:
 			ircontroller.reset();
 			result ();
-			terminal_update('R', true);
+			terminal_update(Terminal::Result, true);
 			Dynamic::start();
 			state = Dead;
 		case Dead:
