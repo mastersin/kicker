@@ -160,19 +160,29 @@ const uint8_t IndicatorBase::Leds[] =
 	0x20
 };
 
+class LightBase;
 class SensorBase
 {
-	typedef uint8_t sensor_type;
-protected:
-	virtual sensor_type get (sensor_type last = 0) = 0;
-	virtual void kick (IndicatorBase &i, sensor_type s) = 0;
+public:
+	enum KickType {
+		Unknown = 0,
+		RightSide,
+		RightAberrance,
+		Straight,
+		LeftAberrance,
+		LeftSide
+	};
 
-	virtual void setDebugSignal (bool s) = 0;
-	virtual void setDebugDeadTime (bool s) = 0;
+protected:
+	typedef uint8_t sensor_type;
+
+	virtual KickType get (KickType last = Unknown) = 0;
+	virtual void kick (IndicatorBase &i, KickType s) = 0;
+
 public:
 	SensorBase (): state(Wait) {}
 
-	bool poll (IndicatorBase &indicator);
+	bool poll (IndicatorBase &indicator, LightBase &l);
 	void check (bool ck8)
 	{
 		if(checkTimer != 0) {
@@ -207,7 +217,7 @@ private:
 	};
 
 	State state;
-	sensor_type last_sensor;
+	KickType last_sensor;
 	uint8_t checkTimer;
 	uint8_t checkTimerBack;
 	uint8_t checkTimerDead;
@@ -218,9 +228,7 @@ template <Port port,
           IO::Bit  bit2,
           IO::Bit  bit3,
           IO::Bit  bit4,
-          IO::Bit  bit5,
-          class DebugSignal,
-          class DebugDeadTime>
+          IO::Bit  bit5>
 class Sensor: public SensorBase
 {
 	static const sensor_type sensor1 = MAKEBIT(bit1);
@@ -235,53 +243,206 @@ public:
 	Sensor(): SensorBase()
 	{
 		sensors::init(true);
-		DebugSignal::init();
-		DebugDeadTime::init();
 	}
 
 protected:
-	virtual sensor_type get (sensor_type last)
+	virtual KickType get (KickType last)
 	{
 		sensor_type mask = sensors::get();
 
-		if (mask & last)
+		if (last != Unknown && mask & kick_type(last))
 			return last;
 
 		if ((mask & sensor1))
-			return sensor1;
+			return LeftSide;
 		if ((mask & sensor2))
-			return sensor2;
+			return LeftAberrance;
 		if ((mask & sensor3))
-			return sensor3;
+			return Straight;
 		if ((mask & sensor4))
-			return sensor4;
+			return RightAberrance;
 		if ((mask & sensor5))
+			return RightSide;
+
+		return Unknown;
+	}
+	virtual sensor_type kick_type (KickType type)
+	{
+		switch (type)
+		{
+		default:
+		case Unknown:
+			return 0;
+		case LeftSide:
+			return sensor1;
+		case LeftAberrance:
+			return sensor2;
+		case Straight:
+			return sensor3;
+		case RightAberrance:
+			return sensor4;
+		case RightSide:
 			return sensor5;
+		}
 
 		return 0;
 	}
-	virtual void kick (IndicatorBase &i, sensor_type s)
+	virtual void kick (IndicatorBase &i, KickType type)
 	{
-		if (s & sensor1)
+		switch (type)
+		{
+		case LeftSide:
 			i.kick(0);
-		if (s & sensor2)
+			break;
+		case LeftAberrance:
 			i.kick(1);
-		if (s & sensor3)
+			break;
+		case Straight:
 			i.kick(2);
-		if (s & sensor4)
+			break;
+		case RightAberrance:
 			i.kick(3);
-		if (s & sensor5)
+			break;
+		case RightSide:
 			i.kick(4);
-	}
-	virtual void setDebugSignal (bool s)
-	{
-		DebugSignal::set(s);
-	}
-	virtual void setDebugDeadTime (bool s)
-	{
-		DebugDeadTime::set(s);
+			break;
+		default:
+		case Unknown:
+			break;
+		}
 	}
 };
+
+class LightBase
+{
+public:
+	typedef SensorBase::KickType KickType;
+
+	LightBase()
+	{
+		checkTimer = 0;
+		enabled = false;
+	}
+
+	enum LightType
+	{
+		None = 0,
+		Right = 1,
+		Left = 2,
+		All = 3
+	};
+
+	void init() {
+		right = 0;
+		left = 0;
+		checkTimer = 0;
+		dark();
+	}
+
+	void dark(LightType type = All)
+	{
+		if (type & Right)
+			rightLight(false);
+		if (type & Left)
+			leftLight(false);
+	}
+	void light(LightType type = None)
+	{
+		if (checkTimer > 0 || !enabled)
+			return;
+
+		if (type & Right)
+			rightLight(true);
+		if (type & Left)
+			leftLight(true);
+
+		checkTimer = 10;
+	}
+
+	void test(KickType kick);
+	void poll()
+	{
+		if(checkTimer == 0)
+			dark();
+	}
+	static void check()
+	{
+		if(checkTimer != 0)
+			--checkTimer;
+	}
+	static void enable()
+	{
+		enabled = true;
+	}
+	static void disable()
+	{
+		enabled = false;
+	}
+
+protected:
+	virtual void rightLight(bool) = 0;
+	virtual void leftLight(bool) = 0;
+
+private:
+
+	uint8_t threshold() {
+		return 16;
+	}
+	uint8_t limit() {
+		return 24;
+	}
+
+	static volatile uint8_t checkTimer;
+	static volatile bool enabled;
+	uint8_t right;
+	uint8_t left;
+};
+
+volatile uint8_t LightBase::checkTimer;
+volatile bool LightBase::enabled;
+
+template <class RightSignal, class LeftSignal>
+class Light: public LightBase
+{
+public:
+	Light (): LightBase()
+	{
+		RightSignal::init();
+		LeftSignal::init();
+	}
+
+protected:
+	virtual void rightLight (bool state) {
+		RightSignal::set(state);
+	}
+	virtual void leftLight (bool state) {
+		LeftSignal::set(state);
+	}
+};
+
+void LightBase::test(KickType kick)
+{
+	switch (kick) {
+	case SensorBase::RightAberrance:
+		if (right < limit())
+			right++;
+		if (right >= threshold())
+			light(Right);
+		break;
+	case SensorBase::LeftAberrance:
+		if (left < limit())
+			left++;
+		if (left >= threshold())
+			light(Left);
+		break;
+	default:
+		if (left > 0)
+			left--;
+		if (right > 0)
+			right--;
+		break;
+	}
+}
 
 class ButtonBase
 {
@@ -1213,11 +1374,11 @@ class System
 	typedef Output<IO::port_B, IO::bit_2, true> GreenStrobe;
 	typedef Output<IO::port_B, IO::bit_3, true> IndicatorEnable;
 
-	typedef Output<IO::port_C, IO::bit_0, true> RedDebugSignal;
-	typedef Output<IO::port_C, IO::bit_1, true> RedDebugDeadTime;
+	typedef Output<IO::port_C, IO::bit_0, true> RedRightLight;
+	typedef Output<IO::port_C, IO::bit_2, true> RedLeftLight;
 
-	typedef Output<IO::port_B, IO::bit_7, true> GreenDebugSignal;
-	typedef Output<IO::port_B, IO::bit_6, true> GreenDebugDeadTime;
+	typedef Output<IO::port_A, IO::bit_7, true> GreenRightLight;
+	typedef Output<IO::port_A, IO::bit_5, true> GreenLeftLight;
 
 	typedef Indicator<RedStrobe, IndicatorEnable> RedIndicator;
 	typedef Indicator<GreenStrobe, IndicatorEnable> GreenIndicator;
@@ -1232,24 +1393,28 @@ class System
 			IO::bit_6,
 			IO::bit_7,
 			IO::bit_5,
-			IO::bit_3,
-			RedDebugSignal,
-			RedDebugDeadTime> RedSensor;
+			IO::bit_3> RedSensor;
 	typedef Sensor<	IO::port_A,
 			IO::bit_3,
 			IO::bit_1,
 			IO::bit_0,
 			IO::bit_2,
-			IO::bit_4,
-			GreenDebugSignal,
-			GreenDebugDeadTime> GreenSensor;
+			IO::bit_4> GreenSensor;
+
+	typedef Light<RedRightLight,
+			RedLeftLight> RedLight;
+	typedef Light<GreenRightLight,
+			GreenLeftLight> GreenLight;
 
 	RedIndicator redIndicator;
 	GreenIndicator greenIndicator;
 
 	RedSensor redSensor;
 	GreenSensor greenSensor;
-	
+
+	RedLight redLight;
+	GreenLight greenLight;
+
 	StartButton startButton;
 	ResetButton resetButton;
 	ModeButton modeButton;
@@ -1268,9 +1433,9 @@ public:
 	void poll_sensors()
 	{
 		if (state == Box) {
-			if (greenSensor.poll(greenIndicator))
+			if (greenSensor.poll(greenIndicator, greenLight))
 				terminal_update(Terminal::Kick);
-			if (redSensor.poll(redIndicator))
+			if (redSensor.poll(redIndicator, redLight))
 				terminal_update(Terminal::Kick);
 		} else {
 			greenSensor.reset();
@@ -1281,6 +1446,12 @@ public:
 		resetButton.poll();
 		modeButton.poll();
 		minuteButton.poll();
+	}
+
+	void poll_lights ()
+	{
+		greenLight.poll();
+		redLight.poll();
 	}
 
 	void poll_display()
@@ -1337,6 +1508,7 @@ public:
 	{
 		poll_sensors();
 		poll_terminal();
+		poll_lights();
 
 		if (muteEvent())
 			Dynamic::start(2);
@@ -1433,9 +1605,10 @@ public:
 		}
 	}
 
-	void dynamicTimer ()
+	void tenPartOfSecondTimer ()
 	{
 		Dynamic::check();
+		LightBase::check();
 	}
 	
 
@@ -1547,7 +1720,7 @@ private:
 	uint8_t terminal_status;
 };
 
-bool SensorBase::poll (IndicatorBase &indicator)
+bool SensorBase::poll (IndicatorBase &indicator, LightBase &light)
 {
 	bool kicked = false;
 
@@ -1616,6 +1789,7 @@ bool SensorBase::poll (IndicatorBase &indicator)
 		case Kick:
 
 			kick(indicator, last_sensor);
+			light.test(last_sensor);
 			kicked = true;
 
 			state = Dead;
@@ -1627,15 +1801,6 @@ bool SensorBase::poll (IndicatorBase &indicator)
 		default:
 			state = Wait;
 	}	
-
-//	switch (state)
-//	{
-//		default:
-//			setDebugSignal(false);
-//		case Wait:
-//			setDebugDeadTime(false);
-//			break;
-//	}	
 
 	return kicked;
 }
@@ -1715,7 +1880,7 @@ ISR(TIMER1_COMPA_vect)
 	static uint8_t s = 0;
 	if (s == 0)
 		system.secondTimer();
-	system.dynamicTimer();
+	system.tenPartOfSecondTimer();
 	if (s & 0x1)
 		system.updateIndicators();
 	s = s < 9 ? s + 1 : 0;
@@ -1774,6 +1939,12 @@ bool System::timeset ()
 		redIndicator.time(timer);
 		greenIndicator.put(5, redIndicator.get(5));
 		redIndicator.zero(5);
+		greenLight.init();
+		redLight.init();
+		if (mode == Trainee)
+			LightBase::enable();
+		else
+			LightBase::disable();
 		return true;
 	}
 	
