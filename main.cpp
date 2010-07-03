@@ -86,7 +86,9 @@ public:
 	}
 	void time (int16_t t)
 	{
-		return put(5, t*100/60);
+		// Convert number of seconds like 182
+		// to digits like 302 (3.02, 3 minutes 2 seconds)
+		return put(5, t/60*100 + t%60);
 	}
 	void zero (uint8_t index);
 	void minus (uint8_t index, uint8_t middle = 0x11);
