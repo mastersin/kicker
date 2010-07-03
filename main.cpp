@@ -356,7 +356,7 @@ public:
 		if (type & Left)
 			leftLight(true);
 
-		checkTimer = 10;
+		checkTimer = 2;
 	}
 
 	void test(KickType kick);
@@ -386,10 +386,10 @@ protected:
 private:
 
 	uint8_t threshold() {
-		return 16;
+		return 4;
 	}
 	uint8_t limit() {
-		return 24;
+		return 6;
 	}
 
 	static volatile uint8_t checkTimer;
